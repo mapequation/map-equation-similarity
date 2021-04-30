@@ -119,7 +119,8 @@ class CodeBook:
         if len(path) == 1:
             return self.code_book[path[0]].enter_cost
 
-        return self.code_book[path[0]].enter_cost + self.code_book[path[0]].get_path_cost_forward(path[1:])
+        return self.code_book[path[0]].enter_cost \
+             + self.code_book[path[0]].get_path_cost_forward(path[1:])
 
     def get_path_cost_reverse(self, path: List[int]) -> float:
         """
@@ -133,4 +134,5 @@ class CodeBook:
         if len(path) == 1:
             return 0.0
 
-        return self.code_book[path[0]].exit_cost + self.code_book[path[0]].get_path_cost_reverse(path[1:])
+        return self.code_book[path[0]].exit_cost \
+             + self.code_book[path[0]].get_path_cost_reverse(path[1:])

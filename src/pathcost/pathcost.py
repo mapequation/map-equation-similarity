@@ -28,26 +28,63 @@ class PathCost:
         treefile: str
             The file that contains the partition.
         """
-        self._load_modules(netfile, treefile)
+
+        # check if there are states in the input file
+        with open(netfile, "r") as fh:
+            has_states = False
+            for line in fh:
+                has_states = line.startswith("*States")
+                if has_states:
+                    break
+
+        # if there are states, read it as a state file and work with state nodes
+        if has_states:
+            network = NetworkFromStateFile(netfile)
+        else:
+            network = NetworkFromNetFile(netfile)
+
+        partition = PartitionFromTreeFile(treefile)
+
+        self._load_modules(network, partition)
         self._process_inputs()
         return self
 
-    def load_from_infomap(self, infomap: Infomap) -> None:
+    def load_from_infomap_run(self, netfile: str) -> None:
         """
-        Load a partition from an Infomap instance and construct codebooks from it.
+        Run infomap on the supplied network file and use the partition it finds.
+
+        Parameters
+        ----------
+        netfile: str
+            The file that contains the network.
         """
-        raise Exception("PathCost:load_from_infomap not implemented.")
+
+        # run infomap
+        im = Infomap("--silent")
+        im.read_file(netfile)
+        im.run()
+
+        partition = PartitionFromInfomap(im)
+
+        # but we need to look at the input file again
+        if im.memoryInput:
+            network = NetworkFromStateFile(netfile)
+        else:
+            network = NetworkFromNetFile(netfile)
+
+        self._load_modules(network, partition)
+        self._process_inputs()
+        return self
 
     def _process_inputs(self):
         """
         Private method for populating the codebooks after loading data.
         """
-
         # create the codebook and insert all paths
         self.cb = CodeBook()
         self.cb.insert_path((), 1, 0, 0)
         for m in self.modules:
-            self.cb.insert_path( m.split(":")
+            self.cb.insert_path( m
                                , self.modules[m]["flow"]
                                , self.modules[m]["enter"]
                                , self.modules[m]["exit"]
@@ -55,92 +92,64 @@ class PathCost:
         self.cb.calculate_normalisers()
         self.cb.calculate_costs()
 
-    def _load_modules(self, netfile: str, treefile: str) -> None:
+    def _load_modules(self, network: Network, partition: Partition) -> None:
         """
         Load the modules.
 
         Parameters
         ----------
-        netfile: str
-            The file that contains the network.
+        network: Network
+            The network.
 
-        treefile: str
-            The file that contains the partition.
+        partition: Partition
+            The partition.
         """
-        # for reading the network
-        reader  = StateFileReader(netfile)
+        self.modules = partition.get_modules()
+        self.paths   = partition.get_paths()
 
-        # all modules with their nodes
-        modules = defaultdict(lambda: dict( nodes = set()
-                                          , flow  = 0.0
-                                          , enter = 0.0
-                                          , exit  = 0.0
-                                          )
-                             )
-
-        # node visit rates
-        flows   = dict()
-
-        # full paths of nodes
-        paths   = dict()
-
-        with open(treefile, "r") as fh:
-            for line in fh:
-                if line.startswith("*Links undirected"):
-                    break
-
-                if not line.startswith("#"):
-                    path, flow, _, nodeID, _ = splitQuotationAware(line.strip())
-                    nodeID = int(nodeID)
-                    flows[nodeID] = float(flow)
-                    paths[nodeID] = path.split(":")
-                    for prefix in inits(paths[nodeID]):
-                        module = ":".join(prefix)
-                        modules[module]["nodes"].add(nodeID)
+        flows = partition.get_flows()
 
         # set the flow of modules by summing over the flow of contained nodes
-        for n in reader.get_state_nodes():
-            for i,_ in enumerate(paths[n], start=1):
-                path = ":".join(paths[n][:i])
-                modules[path]["flow"] += flows[n]
+        for n in network.get_nodes():
+            for i,_ in enumerate(self.paths[n], start=1):
+                path = tuple(self.paths[n][:i])
+                self.modules[path]["flow"] += flows[n]
 
         # count all degrees for flow normalisation, assuming that the network is undirected
+        # ToDo: handle directed networks!
         degree = defaultdict(lambda: 0)
-        for e in reader.get_edges():
+        for e in network.get_edges():
             u,v,w = e
             degree[u] += w
             degree[v] += w
 
         # set enter and exit flow by going over all edges
-        for e in reader.get_edges():
+        for e in network.get_edges():
             u,v,w = e
-            pfrom = paths[u]
-            pto   = paths[v]
+            pfrom = self.paths[u]
+            pto   = self.paths[v]
 
             i = 0
             while i < len(pfrom) and i < len(pto) and pfrom[i] == pto[i]:
                 i += 1
-            prefix = ":".join(pfrom[:i])
+            prefix = tuple(pfrom[:i])
 
             pfrom = pfrom[i:]
             pto   = pto[i:]
 
             for j,_ in enumerate(pfrom, start=1):
-                path = ":".join(pfrom[:j])
+                path = tuple(pfrom[:j])
                 if len(prefix) > 0:
-                    path = prefix + ":" + path
-                modules[path]["exit"]  += w/degree[u] * flows[u]
-                modules[path]["enter"] += w/degree[v] * flows[v]
+                    path = prefix + path
+                self.modules[path]["exit"]  += w/degree[u] * flows[u]
+                self.modules[path]["enter"] += w/degree[v] * flows[v]
 
             for j,_ in enumerate(pto, start=1):
-                path = ":".join(pto[:j])
+                path = tuple(pto[:j])
                 if len(prefix) > 0:
-                    path = prefix + ":" + path
-                modules[path]["exit"]  += w/degree[v] * flows[v]
-                modules[path]["enter"] += w/degree[u] * flows[u]
-
-        self.modules = modules
-        self.paths   = paths
+                    path = prefix + path
+                self.modules[path]["exit"]  += w/degree[v] * flows[v]
+                self.modules[path]["enter"] += w/degree[u] * flows[u]
 
     def get_path_cost_directed(self, u: int, v: int) -> float:
         """

@@ -1,8 +1,45 @@
-from typing import List, Tuple
+from abc         import ABCMeta, abstractmethod
+from collections import defaultdict
+from infomap     import Infomap
+from typing      import Dict, List, Tuple
 
 from ..util import *
 
-class NetReaderFromDisk:
+class Network(metaclass = ABCMeta):
+    @abstractmethod
+    def get_nodes(self):
+        raise NotImplemented
+
+    @abstractmethod
+    def get_edges(self):
+        raise NotImplemented
+
+class NetworkFromInfomap(Network):
+    """
+    A reader for networks and partitions that reads from an Infomap instance.
+    """
+    def __init__(self, infomap: Infomap):
+        """
+        Initialise the reader.
+
+        Parameters
+        ----------
+        infomap: Infomap
+            The infomap instance to read from.
+        """
+        self.infomap = infomap
+
+    def get_nodes(self) -> List[int]:
+        """Returns the nodes."""
+        # assuming for now that we will use state nodes
+        return sorted([node.state_id for node in infomap.nodes])
+
+    def get_edges(self) -> List[int]:
+        """Returns the edges."""
+        pass
+
+
+class NetworkFromNetFileDisk(Network):
     """
     A reader for net files that contain only nodes and edges.
     We scan the net file for the start of nodes and edges so that we can jump
@@ -10,7 +47,7 @@ class NetReaderFromDisk:
 
     This class is NOT thread-safe!
     """
-    def __init__(self, filename : str):
+    def __init__(self, filename: str):
         """
         Scan through the file and remember where the section for nodes starts
         and ends, and where the section for edges start.
@@ -83,7 +120,7 @@ class NetReaderFromDisk:
             line = self.fh.readline()
 
 
-class NetReader:
+class NetworkFromNetFile(Network):
     """
     A reader for net files that contain only nodes and edges.
     """
@@ -128,7 +165,7 @@ class NetReader:
         return self.edges
 
 
-class StateFileReader:
+class NetworkFromStateFile(Network):
     """
     A reader for state files.
     """
@@ -196,13 +233,104 @@ class StateFileReader:
                 line = fh.readline()
 
     def get_nodes(self) -> List[int]:
-        """Returns the nodes."""
-        return self.nodes
-
-    def get_state_nodes(self) -> List[int]:
         """Returns the state nodes."""
         return self.stateNodes
 
     def get_edges(self) -> List[Tuple[int, int, float]]:
         """Returns the edges."""
         return self.edges
+
+
+class Partition(metaclass = ABCMeta):
+    """
+    Interface for partitions. Partitions can be read from files or directly
+    from an Infomap instance.
+    """
+    def __init__(self):
+        # all modules with their nodes
+        self.modules = defaultdict(lambda: dict( nodes = set()
+                                               , flow  = 0.0
+                                               , enter = 0.0
+                                               , exit  = 0.0
+                                               )
+                                  )
+
+        # flows of the nodes
+        self.flows = dict()
+
+        # paths to nodes, such as "1:1:2" for node 2 in submodule 1 of module 1.
+        self.paths = dict()
+
+    def get_modules(self) -> Dict:
+        """
+        Returns the modules.
+        """
+        return self.modules
+
+    def get_flows(self) -> Dict:
+        """
+        Returns the flows.
+        """
+        return self.flows
+
+    def get_paths(self) -> Dict:
+        """
+        Returns a dictionary for looking up the paths for nodes.
+        """
+        return self.paths
+
+
+class PartitionFromTreeFile(Partition):
+    """
+    A class for reading partitions from tree files.
+    """
+    def __init__(self, treefile: str) -> None:
+        """
+        Initialise and read the tree file.
+
+        Parameters
+        ----------
+        treefile: str
+            The tree file to read.
+        """
+        super().__init__()
+
+        with open(treefile, "r") as fh:
+            for line in fh:
+                if line.startswith("*Links undirected"):
+                    break
+
+                if not line.startswith("#"):
+                    path, flow, _, nodeID, _ = splitQuotationAware(line.strip())
+                    path   = tuple([int(x) for x in path.split(":")])
+                    nodeID = int(nodeID)
+                    self.flows[nodeID] = float(flow)
+                    self.paths[nodeID] = path
+                    for prefix in inits(self.paths[nodeID]):
+                        module = tuple(prefix)
+                        self.modules[module]["nodes"].add(nodeID)
+
+
+class PartitionFromInfomap(Partition):
+    """
+    A class for reading partitions from Infomap instances.
+    """
+    def __init__(self, infomap: Infomap) -> None:
+        """
+        Initialise and read the partition from the infomap instance.
+
+        Parameters
+        ----------
+        infomap: Infomap
+            The infomap instance.
+        """
+        super().__init__()
+
+        for node in infomap.tree:
+            if node.is_leaf:
+                nodeID = node.state_id if infomap.memoryInput else node.node_id
+                self.flows[nodeID] = node.flow
+                self.paths[nodeID] = node.path
+                for prefix in inits(self.paths[nodeID]):
+                    module = tuple(prefix)
+                    self.modules[module]["nodes"].add(nodeID)
