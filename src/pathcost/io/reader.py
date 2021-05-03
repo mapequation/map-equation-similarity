@@ -124,7 +124,7 @@ class NetworkFromNetFile(Network):
     """
     A reader for net files that contain only nodes and edges.
     """
-    def __init__(self, filename: str):
+    def __init__(self, filename: str, directed: bool = False):
         """
         Reads the file and stores nodes and edges in memory.
 
@@ -132,9 +132,13 @@ class NetworkFromNetFile(Network):
         ----------
         filename: str
             The net file to read.
+
+        directed: bool = False
+            Whether the network is directed.
         """
-        self.nodes = []
-        self.edges = []
+        self.directed = directed
+        self.nodes    = []
+        self.edges    = []
 
         with open(filename, "r") as fh:
             line = fh.readline()
@@ -160,16 +164,22 @@ class NetworkFromNetFile(Network):
         """Returns the nodes."""
         return self.nodes
 
-    def get_edges(self) -> List[int]:
+    def get_edges(self) -> List[Tuple[int, int, float]]:
         """Returns the edges."""
-        return self.edges
+        if self.directed:
+            for edge in self.edges:
+                yield edge
+        else:
+            for (u,v,w) in self.edges:
+                yield (u,v,w)
+                yield (v,u,w)
 
 
 class NetworkFromStateFile(Network):
     """
     A reader for state files.
     """
-    def __init__(self, filename: str):
+    def __init__(self, filename: str, directed):
         """
         Reads the file and stores nodes, state nodes, and edges in memory.
 
@@ -177,7 +187,11 @@ class NetworkFromStateFile(Network):
         ----------
         filename: str
             The state file to read.
+
+        directed: bool = False
+            Whether the network is directed.
         """
+        self.directed   = directed
         self.nodes      = list()
         self.stateNodes = dict()
         self.edges      = list()
@@ -238,7 +252,13 @@ class NetworkFromStateFile(Network):
 
     def get_edges(self) -> List[Tuple[int, int, float]]:
         """Returns the edges."""
-        return self.edges
+        if self.directed:
+            for edge in self.edges:
+                yield edge
+        else:
+            for (u,v,w) in self.edges:
+                yield (u,v,w)
+                yield (v,u,w)
 
 
 class Partition(metaclass = ABCMeta):
@@ -327,10 +347,14 @@ class PartitionFromInfomap(Partition):
         super().__init__()
 
         for node in infomap.tree:
+            self.modules[node.path]["flow"]  = node.data.flow
+            self.modules[node.path]["enter"] = node.data.enter_flow
+            self.modules[node.path]["exit"]  = node.data.exit_flow
+
             if node.is_leaf:
                 nodeID = node.state_id if infomap.memoryInput else node.node_id
-                self.flows[nodeID] = node.flow
                 self.paths[nodeID] = node.path
-                for prefix in inits(self.paths[nodeID]):
-                    module = tuple(prefix)
-                    self.modules[module]["nodes"].add(nodeID)
+                # ToDo: we probabl don't need the below
+                for prefix in inits(node.path):
+                    prefix = tuple(prefix)
+                    self.modules[prefix]["nodes"].add(nodeID)

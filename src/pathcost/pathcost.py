@@ -49,7 +49,7 @@ class PathCost:
         self._process_inputs()
         return self
 
-    def load_from_infomap_run(self, netfile: str) -> None:
+    def load_from_infomap_run(self, netfile: str, directed: bool = False) -> None:
         """
         Run infomap on the supplied network file and use the partition it finds.
 
@@ -57,22 +57,30 @@ class PathCost:
         ----------
         netfile: str
             The file that contains the network.
+
+        directed: bool = False
+            Whether the network is directed or not.
         """
 
         # run infomap
-        im = Infomap("--silent")
+        infomap_args = ["--silent"]
+        if directed:
+            infomap_args.append("--directed")
+
+        im = Infomap(" ".join(infomap_args))
         im.read_file(netfile)
         im.run()
 
-        partition = PartitionFromInfomap(im)
+        partition    = PartitionFromInfomap(im)
+        self.modules = partition.get_modules()
+        self.paths   = partition.get_paths()
 
-        # but we need to look at the input file again
-        if im.memoryInput:
-            network = NetworkFromStateFile(netfile)
-        else:
-            network = NetworkFromNetFile(netfile)
+        # # but we need to look at the input file again
+        # if im.memoryInput:
+        #     network = NetworkFromStateFile(netfile, directed = directed)
+        # else:
+        #     network = NetworkFromNetFile(netfile, directed = directed)
 
-        self._load_modules(network, partition)
         self._process_inputs()
         return self
 
@@ -84,10 +92,10 @@ class PathCost:
         self.cb = CodeBook()
         self.cb.insert_path((), 1, 0, 0)
         for m in self.modules:
-            self.cb.insert_path( m
-                               , self.modules[m]["flow"]
-                               , self.modules[m]["enter"]
-                               , self.modules[m]["exit"]
+            self.cb.insert_path( path  = m
+                               , flow  = self.modules[m]["flow"]
+                               , enter = self.modules[m]["enter"]
+                               , exit  = self.modules[m]["exit"]
                                )
         self.cb.calculate_normalisers()
         self.cb.calculate_costs()
@@ -107,49 +115,48 @@ class PathCost:
         self.modules = partition.get_modules()
         self.paths   = partition.get_paths()
 
-        flows = partition.get_flows()
-
-        # set the flow of modules by summing over the flow of contained nodes
-        for n in network.get_nodes():
-            for i,_ in enumerate(self.paths[n], start=1):
-                path = tuple(self.paths[n][:i])
-                self.modules[path]["flow"] += flows[n]
-
-        # count all degrees for flow normalisation, assuming that the network is undirected
-        # ToDo: handle directed networks!
-        degree = defaultdict(lambda: 0)
-        for e in network.get_edges():
-            u,v,w = e
-            degree[u] += w
-            degree[v] += w
-
-        # set enter and exit flow by going over all edges
-        for e in network.get_edges():
-            u,v,w = e
-            pfrom = self.paths[u]
-            pto   = self.paths[v]
-
-            i = 0
-            while i < len(pfrom) and i < len(pto) and pfrom[i] == pto[i]:
-                i += 1
-            prefix = tuple(pfrom[:i])
-
-            pfrom = pfrom[i:]
-            pto   = pto[i:]
-
-            for j,_ in enumerate(pfrom, start=1):
-                path = tuple(pfrom[:j])
-                if len(prefix) > 0:
-                    path = prefix + path
-                self.modules[path]["exit"]  += w/degree[u] * flows[u]
-                self.modules[path]["enter"] += w/degree[v] * flows[v]
-
-            for j,_ in enumerate(pto, start=1):
-                path = tuple(pto[:j])
-                if len(prefix) > 0:
-                    path = prefix + path
-                self.modules[path]["exit"]  += w/degree[v] * flows[v]
-                self.modules[path]["enter"] += w/degree[u] * flows[u]
+        # flows = partition.get_flows()
+        #
+        # # set the flow of modules by summing over the flow of contained nodes
+        # for n in network.get_nodes():
+        #     for i,_ in enumerate(self.paths[n], start=1):
+        #         path = tuple(self.paths[n][:i])
+        #         self.modules[path]["flow"] += flows[n]
+        #
+        # # count all out degrees for flow normalisation
+        # degree = defaultdict(lambda: 0)
+        # for e in network.get_edges():
+        #     u,v,w = e
+        #     degree[u] += w
+        #     degree[v] += w
+        #
+        # # set enter and exit flow by going over all edges
+        # for e in network.get_edges():
+        #     u,v,w = e
+        #     pfrom = self.paths[u]
+        #     pto   = self.paths[v]
+        #
+        #     i = 0
+        #     while i < len(pfrom) and i < len(pto) and pfrom[i] == pto[i]:
+        #         i += 1
+        #     prefix = tuple(pfrom[:i])
+        #
+        #     pfrom = pfrom[i:]
+        #     pto   = pto[i:]
+        #
+        #     for j,_ in enumerate(pfrom, start=1):
+        #         path = tuple(pfrom[:j])
+        #         if len(prefix) > 0:
+        #             path = prefix + path
+        #         self.modules[path]["exit"]  += w/degree[u] * flows[u]
+        #         self.modules[path]["enter"] += w/degree[v] * flows[v]
+        #
+        #     for j,_ in enumerate(pto, start=1):
+        #         path = tuple(pto[:j])
+        #         if len(prefix) > 0:
+        #             path = prefix + path
+        #         self.modules[path]["exit"]  += w/degree[v] * flows[v]
+        #         self.modules[path]["enter"] += w/degree[u] * flows[u]
 
     def get_path_cost_directed(self, u: int, v: int) -> float:
         """
