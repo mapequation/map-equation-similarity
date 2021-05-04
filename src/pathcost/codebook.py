@@ -1,4 +1,4 @@
-from numpy  import log2
+from numpy  import log2, inf
 from typing import List
 
 class CodeBook:
@@ -12,7 +12,16 @@ class CodeBook:
         self.code_book = dict()
 
     def __repr__(self) -> str:
-        return "<CodeBook flow={:.2f}, enter={:.2f}, exit={:.2f}, norm={:.2f}, enter_cost={:.2f}, exit_cost={:.2f}, sub=[{:}]>".format(self.flow, self.enter, self.exit, self.normaliser, self.enter_cost, self.exit_cost, "|".join(["{:}={:}".format(k, v) for k, v in self.code_book.items()]))
+        """
+        """
+        return f"<CodeBook\n{self._serialise(indent = 0)}\n>"
+
+    def _serialise(self, indent: int) -> str:
+        """
+        """
+        subs = "".join([f"\n{cb._serialise(indent + 4)}" for cb in self.code_book.values()])
+        return indent * " " + f"flow={self.flow:.2f}, enter={self.enter:.2f}, exit={self.exit:.2f}, norm={self.normaliser:.2f}, enter_cost={self.enter_cost:.2f}, exit_cost={self.exit_cost:.2f} {subs}"
+
 
     def insert_path(self, path: List[int], flow: float, enter: float, exit: float) -> None:
         """
@@ -66,12 +75,12 @@ class CodeBook:
         """
         Calculate the enter and exit costs, in bits, for all codebooks.
         """
-        self.exit_cost  = -log2(self.exit / self.normaliser) if self.normaliser > 0 and self.exit > 0 else 0.0
+        self.exit_cost  = -log2(self.exit / self.normaliser) if self.normaliser > 0.0 and self.exit > 0.0 else inf
         self.enter_cost = 0.0
 
         for m in self.code_book:
             self.code_book[m].calculate_costs()
-            self.code_book[m].enter_cost = -log2(self.code_book[m].enter / self.normaliser) if self.normaliser > 0 and self.code_book[m].enter > 0 else 0.0
+            self.code_book[m].enter_cost = -log2(self.code_book[m].enter / self.normaliser) if self.normaliser > 0.0 and self.code_book[m].enter > 0.0 else inf
 
     def get_flow(self, path: List[int]) -> float:
         """
