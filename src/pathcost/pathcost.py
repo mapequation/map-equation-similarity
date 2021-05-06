@@ -60,7 +60,7 @@ class PathCost:
         self._build_codebooks()
         return self
 
-    def run_infomap(self, netfile: str, directed: bool = False) -> PathCost:
+    def run_infomap(self, netfile: str, directed: bool) -> PathCost:
         """
         Run infomap on the supplied network file and use the partition it finds.
 
@@ -90,7 +90,7 @@ class PathCost:
         self._build_codebooks()
 
         # build a dictionary to remember which nodes are valid next steps
-        self._build_constraints()
+        self._build_constraints(netfile = netfile, directed = directed)
 
         return self
 
@@ -109,12 +109,12 @@ class PathCost:
         self.cb.calculate_normalisers()
         self.cb.calculate_costs()
 
-    def _build_constraints(self, netfile: str) -> None:
+    def _build_constraints(self, netfile: str, directed: bool) -> None:
         """
         Private method for constructing constraints of transitions
         that respect state histories.
         """
-        network                 = NetworkFromStateFile(netfile)
+        network                 = NetworkFromStateFile(netfile, directed)
         node_IDs_to_node_labels = network.get_nodes()
         state_IDs_to_node_IDs   = { stateID:values["nodeID"] 
                                     for stateID,values in network.get_state_nodes().items() 
@@ -123,12 +123,12 @@ class PathCost:
         # a mapping from physical nodes to their state nodes where
         # paths can start
         self.start_nodes = dict()
-        for stateID, values in network.get_state_nodes():
+        for stateID, values in network.get_state_nodes().items():
             if "eps" in values["label"]:
                 self.start_nodes[values["nodeID"]] = stateID
 
         # extract the memory that corresponds to the state nodes
-        state_memory = dict()
+        self.state_memory = dict()
         for stateID, values in network.get_state_nodes().items():
             # assuming that state labels are of the form {history}_nodeID
             # where the history is a sequence of physical node labels, including
@@ -147,19 +147,19 @@ class PathCost:
             #        {47-51}_42
             history, current_node_label = values["label"].split("_")
             history                     = [h for h in history.strip("{}").split("-") if h != "eps"]
-            state_memory[stateID]       = history + [current_node_label]
+            self.state_memory[stateID]       = history + [current_node_label]
         
         # a mapping from state node IDs to valid next state node IDs
-        self.valid_next_state = { stateID:list() for stateID in state_memory.keys() }
+        self.valid_next_state = { stateID:list() for stateID in self.state_memory.keys() }
 
         # check which states are possible next steps, these are the states
         # that respect the history
         # For example, {42}_47 is a valid next state after {eps}_42, but not
         # {51}_47.
-        for current_state_ID, current_state_memory in state_memory.items():
+        for current_state_ID, current_state_memory in self.state_memory.items():
             physical_label       = node_IDs_to_node_labels[state_IDs_to_node_IDs[stateID]]
-            valid_next_histories = suffixes(memory + [physical_label])
-            for next_state_stateID, next_state_memory in state_memory.items():
+            valid_next_histories = suffixes(current_state_memory + [physical_label])
+            for next_state_stateID, next_state_memory in self.state_memory.items():
                 if next_state_stateID != current_state_ID and next_state_memory in valid_next_histories:
                     self.valid_next_state[current_state_ID].append(next_state_stateID)
 
