@@ -128,7 +128,7 @@ class PathCost:
                 self.start_nodes[values["nodeID"]] = stateID
 
         # extract the memory that corresponds to the state nodes
-        self.state_memory = dict()
+        state_memory = dict()
         for stateID, values in network.get_state_nodes().items():
             # assuming that state labels are of the form {history}_nodeID
             # where the history is a sequence of physical node labels, including
@@ -147,7 +147,7 @@ class PathCost:
             #        {47-51}_42
             history, current_node_label = values["label"].split("_")
             history                     = [h for h in history.strip("{}").split("-") if h != "eps"]
-            self.state_memory[stateID]       = history + [current_node_label]
+            state_memory[stateID]       = history
         
         # a mapping from state node IDs to valid next state node IDs
         self.valid_next_state = { stateID:list() for stateID in self.state_memory.keys() }
@@ -156,10 +156,10 @@ class PathCost:
         # that respect the history
         # For example, {42}_47 is a valid next state after {eps}_42, but not
         # {51}_47.
-        for current_state_ID, current_state_memory in self.state_memory.items():
-            physical_label       = node_IDs_to_node_labels[state_IDs_to_node_IDs[stateID]]
-            valid_next_histories = suffixes(current_state_memory + [physical_label])
-            for next_state_stateID, next_state_memory in self.state_memory.items():
+        for current_state_ID, current_state_memory in state_memory.items():
+            physical_label       = node_IDs_to_node_labels[state_IDs_to_node_IDs[current_state_ID]]
+            valid_next_histories = list(suffixes(current_state_memory + [physical_label]))
+            for next_state_stateID, next_state_memory in state_memory.items():
                 if next_state_stateID != current_state_ID and next_state_memory in valid_next_histories:
                     self.valid_next_state[current_state_ID].append(next_state_stateID)
 
