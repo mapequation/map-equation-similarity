@@ -192,7 +192,7 @@ class NetworkFromStateFile(Network):
             Whether the network is directed.
         """
         self.directed   = directed
-        self.nodes      = list()
+        self.nodes      = dict()
         self.stateNodes = dict()
         self.edges      = list()
 
@@ -211,8 +211,8 @@ class NetworkFromStateFile(Network):
 
                 # read the nodes
                 while not line.startswith("*States"):
-                    nodeID, _ = line.split()
-                    self.nodes.append(int(nodeID))
+                    nodeID, nodeLabel = line.split()
+                    self.nodes[int(nodeID)] = nodeLabel
                     line = fh.readline()
 
             # now we must be at the start of the state nodes sections
@@ -226,8 +226,10 @@ class NetworkFromStateFile(Network):
 
             # read the state nodes
             while not (line.startswith("*Edges") or line.startswith("*Links")):
-                stateID, nodeID, _stateName = splitQuotationAware(line)
-                self.stateNodes[int(stateID)] = int(nodeID)
+                stateID, nodeID, stateLabel = splitQuotationAware(line)
+                self.stateNodes[int(stateID)] = dict( nodeID = int(nodeID)
+                                                    , label  = stateLabel
+                                                    )
                 line = fh.readline()
 
             line = fh.readline()
@@ -247,6 +249,10 @@ class NetworkFromStateFile(Network):
                 line = fh.readline()
 
     def get_nodes(self) -> List[int]:
+        """Returns the nodes."""
+        return self.nodes
+    
+    def get_state_nodes(self) -> List[int]:
         """Returns the state nodes."""
         return self.stateNodes
 
