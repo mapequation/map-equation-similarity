@@ -60,7 +60,7 @@ class PathCost:
         self._build_codebooks()
         return self
 
-    def run_infomap(self, netfile: str, directed: bool) -> PathCost:
+    def run_infomap(self, netfile: str, directed: bool, trials: Optional[int] = 1) -> PathCost:
         """
         Run infomap on the supplied network file and use the partition it finds.
 
@@ -74,16 +74,16 @@ class PathCost:
         """
 
         # run infomap
-        infomap_args = ["--silent"]
+        infomap_args = [f"--silent --num-trials {trials}"]
         if directed:
             infomap_args.append("--directed")
 
-        infomap = Infomap(" ".join(infomap_args))
-        infomap.read_file(netfile)
-        infomap.run()
+        self.infomap = Infomap(" ".join(infomap_args))
+        self.infomap.read_file(netfile)
+        self.infomap.run()
 
         # extract the partition from infomap
-        partition = PartitionFromInfomap(infomap)
+        partition = PartitionFromInfomap(self.infomap)
 
         self.modules = partition.get_modules()
         self.paths   = partition.get_paths()
@@ -114,17 +114,18 @@ class PathCost:
         Private method for constructing constraints of transitions
         that respect state histories.
         """
-        network                 = NetworkFromStateFile(netfile, directed)
-        node_IDs_to_node_labels = network.get_nodes()
-        state_IDs_to_node_IDs   = { stateID:values["nodeID"] 
-                                    for stateID,values in network.get_state_nodes().items() 
-                                  }
+        network                    = NetworkFromStateFile(netfile, directed)
+        node_IDs_to_node_labels    = network.get_nodes()
+        self.state_IDs_to_node_IDs = { stateID:values["nodeID"] 
+                                           for stateID,values in network.get_state_nodes().items() 
+                                     }
 
         # a mapping from physical nodes to their state nodes where
         # paths can start
         self.start_nodes = dict()
         for stateID, values in network.get_state_nodes().items():
-            if "eps" in values["label"]:
+            # nodes where paths can start have the empty history
+            if "{}" in values["label"]:
                 self.start_nodes[values["nodeID"]] = stateID
 
         # extract the memory that corresponds to the state nodes
@@ -146,18 +147,19 @@ class PathCost:
             #      physical node with label 42:
             #        {47-51}_42
             history, current_node_label = values["label"].split("_")
-            history                     = [h for h in history.strip("{}").split("-") if h != "eps"]
+            # don't include the empty history
+            history                     = [h for h in history.strip("{}").split("-") if h != ""]
             state_memory[stateID]       = history
         
         # a mapping from state node IDs to valid next state node IDs
-        self.valid_next_state = { stateID:list() for stateID in self.state_memory.keys() }
+        self.valid_next_state = { stateID:list() for stateID in state_memory.keys() }
 
         # check which states are possible next steps, these are the states
         # that respect the history
         # For example, {42}_47 is a valid next state after {eps}_42, but not
         # {51}_47.
         for current_state_ID, current_state_memory in state_memory.items():
-            physical_label       = node_IDs_to_node_labels[state_IDs_to_node_IDs[current_state_ID]]
+            physical_label       = node_IDs_to_node_labels[self.state_IDs_to_node_IDs[current_state_ID]]
             valid_next_histories = list(suffixes(current_state_memory + [physical_label]))
             for next_state_stateID, next_state_memory in state_memory.items():
                 if next_state_stateID != current_state_ID and next_state_memory in valid_next_histories:
