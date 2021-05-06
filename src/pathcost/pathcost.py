@@ -60,7 +60,7 @@ class PathCost:
         self._build_codebooks()
         return self
 
-    def run_infomap(self, netfile: str, directed: bool, trials: Optional[int] = 1) -> PathCost:
+    def run_infomap(self, netfile: str, directed: bool, trials: Optional[int] = 1, seed: Optional[int] = 42) -> PathCost:
         """
         Run infomap on the supplied network file and use the partition it finds.
 
@@ -71,10 +71,16 @@ class PathCost:
 
         directed: bool = False
             Whether the network is directed or not.
+
+        trials: Optional[int]
+            Number of trials that infomap should run.
+        
+        seed: Optional[int]
+            The seed for infomap.
         """
 
         # run infomap
-        infomap_args = [f"--silent --num-trials {trials}"]
+        infomap_args = [f"--silent --num-trials {trials} --seed {seed}"]
         if directed:
             infomap_args.append("--directed")
 
