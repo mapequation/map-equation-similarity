@@ -212,7 +212,7 @@ class NetworkFromStateFile(Network):
                 # read the nodes
                 while not line.startswith("*States"):
                     nodeID, nodeLabel = line.strip().split()
-                    self.nodes[int(nodeID)] = nodeLabel
+                    self.nodes[int(nodeID)] = nodeLabel.strip("\"")
                     line = fh.readline()
 
             # now we must be at the start of the state nodes sections
@@ -228,7 +228,7 @@ class NetworkFromStateFile(Network):
             while not (line.startswith("*Edges") or line.startswith("*Links")):
                 stateID, nodeID, stateLabel = splitQuotationAware(line.strip())
                 self.stateNodes[int(stateID)] = dict( nodeID = int(nodeID)
-                                                    , label  = stateLabel
+                                                    , label  = stateLabel.strip("\"")
                                                     )
                 line = fh.readline()
 
