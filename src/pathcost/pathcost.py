@@ -237,9 +237,6 @@ class PathCost:
             
             # if we cannot find a next state, we must predict that the path ends here.
             if next_state is None:
-                # if this happens directly, something is wrong...
-                if res == []:
-                    raise Exception(f"cannot predict a path starting at node {start_node}.")
                 return res
             else:
                 res.append(self.state_IDs_to_node_IDs[next_state])
