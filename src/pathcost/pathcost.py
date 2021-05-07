@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from infomap     import Infomap
+from numpy       import inf
 from typing      import List, Optional
 
 from .codebook   import CodeBook
@@ -53,10 +54,9 @@ class PathCost:
         infomap: Infomap
             The infomap instance.
         """
-        partition    = PartitionFromInfomap(infomap)
-
-        self.modules = partition.get_modules()
-        self.paths   = partition.get_paths()
+        partition      = PartitionFromInfomap(infomap)
+        self.modules   = partition.get_modules()
+        self.addresses = partition.get_paths()
         self._build_codebooks()
         return self
 
@@ -89,10 +89,9 @@ class PathCost:
         self.infomap.run()
 
         # extract the partition from infomap
-        partition = PartitionFromInfomap(self.infomap)
-
-        self.modules = partition.get_modules()
-        self.paths   = partition.get_paths()
+        partition      = PartitionFromInfomap(self.infomap)
+        self.modules   = partition.get_modules()
+        self.addresses = partition.get_paths()
         self._build_codebooks()
 
         # build a dictionary to remember which nodes are valid next steps
@@ -186,10 +185,10 @@ class PathCost:
         if u == v:
             raise Exception("Those are the same nodes, don't do this.")
 
-        return self.cb.get_path_cost_forward(self.paths[u]) \
-             + self.cb.get_walk_cost(self.paths[u], self.paths[v])
+        return self.cb.get_path_cost_forward(self.addresses[u]) \
+             + self.cb.get_walk_cost(self.addresses[u], self.addresses[v])
 
-    def get_path_cost_undirected(self, u, v):
+    def get_path_cost_undirected(self, u: int, v: int) -> float:
         """
         Calculate the path cost for the undirected edge {u,v} as the average
         of the path costs of the directed edges (u,v) and (v,u).
@@ -205,3 +204,45 @@ class PathCost:
         return 0.5 * ( self.get_path_cost_directed(u, v)
                      + self.get_path_cost_directed(v, u)
                      )
+    
+    def predict_path(self, start_node: int, steps: int) -> List[int]:
+        """
+        Predicts `steps` many steps for a path starting at `start_node`.
+
+        Parameters
+        ----------
+        start_node: int
+            The node where the path starts.
+        
+        steps:
+            The number of steps to predict.
+        """
+        res             = []
+        current_state   = self.start_nodes[start_node]
+
+        # predict steps many next steps
+        for _ in range(steps):
+            next_state      = None
+            next_state_cost = inf
+            
+            # calculate the costs for all valid next state nodes, 
+            # given the current state
+            for candidate in self.valid_next_state[current_state]:
+                candidate_cost = self.cb.get_walk_cost(self.addresses[current_state], self.addresses[candidate])
+                
+                # select the candidate if it's cheaper to reach
+                if candidate_cost < next_state_cost:
+                    next_state      = candidate
+                    next_state_cost = candidate_cost
+            
+            # if we cannot find a next state, we must predict that the path ends here.
+            if next_state is None:
+                # if this happens directly, something is wrong...
+                if res == []:
+                    raise Exception(f"cannot predict a path starting at node {start_node}.")
+                return res
+            else:
+                res.append(self.state_IDs_to_node_IDs[next_state])
+                current_state = next_state
+        
+        return res
