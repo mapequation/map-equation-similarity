@@ -208,6 +208,9 @@ class PathCost:
     def predict_path(self, start_node: int, steps: int) -> List[int]:
         """
         Predicts `steps` many steps for a path starting at `start_node`.
+        We assume that we have an oracle that can tell us how long the
+        path should be so that we can terminate it at the proper length
+        with a transition to an epsilon node.
 
         Parameters
         ----------
@@ -221,7 +224,7 @@ class PathCost:
         current_state   = self.start_nodes[start_node]
 
         # predict steps many next steps
-        for _ in range(steps):
+        for step in range(1, steps+1):
             next_state      = None
             next_state_cost = inf
             
@@ -232,8 +235,14 @@ class PathCost:
                 
                 # select the candidate if it's cheaper to reach
                 if candidate_cost < next_state_cost:
-                    next_state      = candidate
-                    next_state_cost = candidate_cost
+                    # we use the path-terminating nodes only in the last step!
+                    if step == steps and next_state in self.start_nodes.values():
+                        next_state      = candidate
+                        next_state_cost = candidate_cost
+                    
+                    elif step < steps and next_state not in self.start_nodes.values():
+                        next_state      = candidate
+                        next_state_cost = candidate_cost
             
             # if we cannot find a next state, we must predict that the path ends here.
             if next_state is None:
@@ -243,3 +252,15 @@ class PathCost:
                 current_state = next_state
         
         return res
+    
+    def predict_next_element(self, path: List[int]) -> int:
+        """
+        Predict the next element given a `path`.
+
+        Parameters
+        ----------
+        path: List[int]
+            The observed path.
+        """
+
+        return False
