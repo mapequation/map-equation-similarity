@@ -60,7 +60,14 @@ class PathCost:
         self._build_codebooks()
         return self
 
-    def run_infomap(self, netfile: str, directed: bool, trials: Optional[int] = 1, seed: Optional[int] = 42) -> PathCost:
+    def run_infomap(self
+                   , netfile: str
+                   , directed: bool
+                   , trials: Optional[int] = 1
+                   , seed: Optional[int] = 42
+                   , max_order: Optional[int] = 2
+                   , move_to_lower_order: Optional[bool] = False
+                   ) -> PathCost:
         """
         Run infomap on the supplied network file and use the partition it finds.
 
@@ -77,6 +84,12 @@ class PathCost:
         
         seed: Optional[int]
             The seed for infomap.
+        
+        max_order: Optional[int] = 2
+            The maximum order of the model.
+        
+        move_to_lower_order: Optional[bool] = False
+            Whether moves to lower order memory are allowed.
         """
 
         # run infomap
@@ -95,7 +108,11 @@ class PathCost:
         self._build_codebooks()
 
         # build a dictionary to remember which nodes are valid next steps
-        self._build_constraints(netfile = netfile, directed = directed)
+        self._build_constraints( netfile             = netfile
+                               , directed            = directed
+                               , max_order           = max_order
+                               , move_to_lower_order = move_to_lower_order
+                               )
 
         return self
 
@@ -114,29 +131,45 @@ class PathCost:
         self.cb.calculate_normalisers()
         self.cb.calculate_costs()
 
-    def _build_constraints(self, netfile: str, directed: bool) -> None:
+    def _build_constraints( self
+                          , netfile: str
+                          , directed: bool
+                          , max_order: int
+                          , move_to_lower_order: bool
+                          ) -> None:
         """
         Private method for constructing constraints of transitions
         that respect state histories.
+
+        Parameters
+        ----------
+        netfile: str
+            The file that contains the network.
+
+        directed: bool
+            Whether the network is directed.
+        
+        max_order: int
+            The maximum order to consider. Relevant for the allowed next states.
         """
         network                      = NetworkFromStateFile(netfile, directed)
         self.node_IDs_to_node_labels = network.get_nodes()
-        self.state_IDs_to_node_IDs   = { stateID:values["nodeID"] 
-                                             for stateID,values in network.get_state_nodes().items() 
+        self.state_IDs_to_node_IDs   = { stateID : values["nodeID"] 
+                                             for (stateID, values) in network.get_state_nodes().items() 
                                        }
 
         # a mapping from physical nodes to their state nodes where
         # paths can start
         self.start_nodes = dict()
-        for stateID, values in network.get_state_nodes().items():
+        for (stateID, values) in network.get_state_nodes().items():
             # nodes where paths can start have the empty history
             if "{}" in values["label"]:
                 self.start_nodes[values["nodeID"]] = stateID
 
         # extract the memory that corresponds to the state nodes
-        self.state_memory     = dict()
-        self.history_to_state = dict()
-        for stateID, values in network.get_state_nodes().items():
+        self.state_ID_to_memory = dict()
+        self.memory_to_state    = dict()
+        for (stateID, values) in network.get_state_nodes().items():
             # assuming that state labels are of the form {history}_nodeID
             # where the history is a sequence of physical node labels, including
             # the empty label eps, separated by dashes "-".
@@ -152,25 +185,44 @@ class PathCost:
             #      recently through the physical nodes with labels 47 and 51 in
             #      physical node with label 42:
             #        {47-51}_42
-            history, current_node_label = values["label"].split("_")
+            memory, current_node_label = values["label"].split("_")
             # don't include the empty history
-            history                                                = tuple([h for h in history.strip("{}").split("-") if h != ""])
-            self.state_memory[stateID]                             = history
-            self.history_to_state[history + (current_node_label,)] = stateID
+            memory                                               = tuple([m for m in memory.strip("{}").split("-") if m != ""])
+            self.state_ID_to_memory[stateID]                     = memory
+            self.memory_to_state[memory + (current_node_label,)] = stateID
         
         # a mapping from state node IDs to valid next state node IDs
-        self.valid_next_state = { stateID:list() for stateID in self.state_memory.keys() }
+        self.valid_next_state = { stateID : list() for stateID in self.state_ID_to_memory.keys() }
 
         # check which states are possible next steps, these are the states
         # that respect the history
         # For example, {42}_47 is a valid next state after {eps}_42, but not
         # {51}_47.
-        for current_state_ID, current_state_memory in self.state_memory.items():
-            physical_label       = self.node_IDs_to_node_labels[self.state_IDs_to_node_IDs[current_state_ID]]
-            valid_next_histories = list(suffixes(current_state_memory + (physical_label,)))
+        for (current_state_ID, current_state_memory) in self.state_ID_to_memory.items():
+            physical_label      = self.node_IDs_to_node_labels[self.state_IDs_to_node_IDs[current_state_ID]]
+
+            # when we allow moving to a lower order, then all suffixes of the 
+            # current memory, plus the current physical node, are valid next
+            # memories, including the empty memory, that is an initial/terminal node.
+            if move_to_lower_order:
+                valid_next_memories = [ next_memory
+                                            for next_memory in suffixes(current_state_memory + (physical_label,))
+                                            if len(next_memory) <= max_order
+                                      ]
             
-            for next_state_stateID, next_state_memory in self.state_memory.items():
-                if next_state_stateID != current_state_ID and next_state_memory in valid_next_histories:
+            # otherwise, we will always stay in the curren order of memory or
+            # move up
+            else:
+                valid_next_memories = [ next_memory
+                                            for next_memory in [ current_state_memory[1:] + (physical_label,)
+                                                               , current_state_memory     + (physical_label,)
+                                                               ]
+                                            if len(next_memory) <= max_order
+                                      ]
+
+            for (next_state_stateID, next_state_memory) in self.state_ID_to_memory.items():
+                # transitions between state nodes inside the same physical node are not allowed
+                if next_state_stateID != current_state_ID and next_state_memory in valid_next_memories:
                     self.valid_next_state[current_state_ID].append(next_state_stateID)
 
     def get_path_cost_directed(self, u: int, v: int) -> float:
@@ -280,7 +332,7 @@ class PathCost:
             The observed path.
         """
         history        = tuple([self.node_IDs_to_node_labels[node] for node in path])
-        current_state  = self.history_to_state[history]
+        current_state  = self.memory_to_state[history]
         source_address = self.addresses[current_state]
         
         ranking = []
