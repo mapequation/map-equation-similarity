@@ -119,11 +119,11 @@ class PathCost:
         Private method for constructing constraints of transitions
         that respect state histories.
         """
-        network                    = NetworkFromStateFile(netfile, directed)
-        node_IDs_to_node_labels    = network.get_nodes()
-        self.state_IDs_to_node_IDs = { stateID:values["nodeID"] 
-                                           for stateID,values in network.get_state_nodes().items() 
-                                     }
+        network                      = NetworkFromStateFile(netfile, directed)
+        self.node_IDs_to_node_labels = network.get_nodes()
+        self.state_IDs_to_node_IDs   = { stateID:values["nodeID"] 
+                                             for stateID,values in network.get_state_nodes().items() 
+                                       }
 
         # a mapping from physical nodes to their state nodes where
         # paths can start
@@ -134,7 +134,8 @@ class PathCost:
                 self.start_nodes[values["nodeID"]] = stateID
 
         # extract the memory that corresponds to the state nodes
-        state_memory = dict()
+        self.state_memory     = dict()
+        self.history_to_state = dict()
         for stateID, values in network.get_state_nodes().items():
             # assuming that state labels are of the form {history}_nodeID
             # where the history is a sequence of physical node labels, including
@@ -153,20 +154,22 @@ class PathCost:
             #        {47-51}_42
             history, current_node_label = values["label"].split("_")
             # don't include the empty history
-            history                     = [h for h in history.strip("{}").split("-") if h != ""]
-            state_memory[stateID]       = history
+            history                                                = tuple([h for h in history.strip("{}").split("-") if h != ""])
+            self.state_memory[stateID]                             = history
+            self.history_to_state[history + (current_node_label,)] = stateID
         
         # a mapping from state node IDs to valid next state node IDs
-        self.valid_next_state = { stateID:list() for stateID in state_memory.keys() }
+        self.valid_next_state = { stateID:list() for stateID in self.state_memory.keys() }
 
         # check which states are possible next steps, these are the states
         # that respect the history
         # For example, {42}_47 is a valid next state after {eps}_42, but not
         # {51}_47.
-        for current_state_ID, current_state_memory in state_memory.items():
-            physical_label       = node_IDs_to_node_labels[self.state_IDs_to_node_IDs[current_state_ID]]
-            valid_next_histories = list(suffixes(current_state_memory + [physical_label]))
-            for next_state_stateID, next_state_memory in state_memory.items():
+        for current_state_ID, current_state_memory in self.state_memory.items():
+            physical_label       = self.node_IDs_to_node_labels[self.state_IDs_to_node_IDs[current_state_ID]]
+            valid_next_histories = list(suffixes(current_state_memory + (physical_label,)))
+            
+            for next_state_stateID, next_state_memory in self.state_memory.items():
                 if next_state_stateID != current_state_ID and next_state_memory in valid_next_histories:
                     self.valid_next_state[current_state_ID].append(next_state_stateID)
 
@@ -253,6 +256,7 @@ class PathCost:
         
         return res
     
+    # ToDo: specify the order
     def predict_next_element(self, path: List[int]) -> int:
         """
         Predict the next element given a `path`.
@@ -262,5 +266,37 @@ class PathCost:
         path: List[int]
             The observed path.
         """
+        return self.rank_next_elements(path)[0]
+        
+    
+    # ToDo: specify the order
+    def rank_next_elements(self, path: List[int]) -> List[int]:
+        """
+        Rank the next elements given a `path`.
 
-        return False
+        Parameters
+        ----------
+        path: List[int]
+            The observed path.
+        """
+        history        = tuple([self.node_IDs_to_node_labels[node] for node in path])
+        current_state  = self.history_to_state[history]
+        source_address = self.addresses[current_state]
+        
+        ranking = []
+
+        for next_state_candidate in self.valid_next_state[current_state]:
+            target_address = self.addresses[next_state_candidate]
+            target_cost    = self.cb.get_walk_cost(source_address, target_address)
+            ranking.append((next_state_candidate, target_cost))
+
+        ranking = sorted(ranking, key = lambda pair: pair[1])
+
+        # convert the next state nodes into next physical nodes
+        res = []
+        for next_state_candidate, _ in ranking:
+            next_node_candidate = self.state_IDs_to_node_IDs[next_state_candidate]
+            if next_node_candidate not in res:
+                res.append(next_node_candidate)
+
+        return res
