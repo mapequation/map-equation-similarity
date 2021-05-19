@@ -19,32 +19,6 @@ class PathCost:
         Initialise.
         """
 
-    def load_from_files(self, netfile: str, treefile: str) -> None:
-        """
-        Load a partition from files and construct codebooks from it.
-
-        Parameters
-        ----------
-        netfile: str
-            The file that contains the network.
-
-        treefile: str
-            The file that contains the partition.
-        """
-
-        # check if there are states in the input file
-        with open(netfile, "r") as fh:
-            has_states = False
-            for line in fh:
-                has_states = line.startswith("*States")
-                if has_states:
-                    break
-
-        partition = PartitionFromTreeFile(treefile)
-
-        self._process_inputs()
-        return self
-
     def from_infomap(self, infomap: Infomap) -> PathCost:
         """
         Construct codebooks from the supplied infomap instance.
@@ -60,13 +34,11 @@ class PathCost:
         self._build_codebooks()
         return self
 
-    def run_infomap(self
+    def run_infomap( self
                    , netfile: str
                    , directed: bool
                    , trials: Optional[int] = 1
                    , seed: Optional[int] = 42
-                   , max_order: Optional[int] = 2
-                   , move_to_lower_order: Optional[bool] = False
                    ) -> PathCost:
         """
         Run infomap on the supplied network file and use the partition it finds.
@@ -107,12 +79,8 @@ class PathCost:
         self.addresses = partition.get_paths()
         self._build_codebooks()
 
-        # build a dictionary to remember which nodes are valid next steps
-        self._build_constraints( netfile             = netfile
-                               , directed            = directed
-                               , max_order           = max_order
-                               , move_to_lower_order = move_to_lower_order
-                               )
+        # for making predictions later
+        self.node_IDs_to_labels = self.infomap.names
 
         return self
 
@@ -131,6 +99,133 @@ class PathCost:
         self.cb.calculate_normalisers()
         self.cb.calculate_costs()
 
+    def get_path_cost_directed(self, u: int, v: int) -> float:
+        """
+        Calculate the path cost for the directed edge (u,v).
+
+        Parameters
+        ----------
+        u: int
+            The source node.
+
+        v: int
+            The target node.
+        """
+        if u == v:
+            raise Exception("Those are the same nodes, don't do this.")
+
+        return self.cb.get_path_cost_forward(self.addresses[u]) \
+             + self.cb.get_walk_cost(self.addresses[u], self.addresses[v])
+
+    def get_path_cost_undirected(self, u: int, v: int) -> float:
+        """
+        Calculate the path cost for the undirected edge {u,v} as the average
+        of the path costs of the directed edges (u,v) and (v,u).
+
+        Parameters
+        ----------
+        u: int
+            The source node.
+
+        v: int
+            The target node.
+        """
+        return 0.5 * ( self.get_path_cost_directed(u, v)
+                     + self.get_path_cost_directed(v, u)
+                     )
+    
+    def get_address(self, path: List[str]) -> List[int]:
+        """
+        """
+        # if the path is empty, we start at the root of the partition
+        if len(path) == 0:
+            return ()
+        
+        # if the path only contains one node, we start at the epsilon
+        # node of the respective physical node
+        if len(path) == 1:
+            return (self.addresses[path[0]]["{}"],)
+        
+        # if the path contains two nodes, we start at the corresponding
+        # memory node if it has an own address, otherwise we begin at the
+        # epsilon node of the physical node, which has the same address
+        # as all other memory nodes in that physical node that don't have
+        # an own address
+        if path[-2] in self.addresses[path[-1]]:
+            return self.addresses[path[-1]][path[-2]]
+        else:
+            return self.addresses[path[-1]]["{}"]
+
+
+    def predict_next_element(self, path: List[str]) -> str:
+        """
+        Predicts the next element, given a list of labels of those nodes that
+        have interacted.
+
+        Parameters
+        ----------
+        path: List[str]]
+            A list of labels of those nodes that have interacted.
+        
+        Returns
+        -------
+        int
+            The label of the most likely next node.
+        """
+        # ToDo: make a more efficient implementation
+        return self.rank_next_elements(path = path)[0]
+        
+
+    def rank_next_elements(self, path: List[str]) -> List[str]:
+        """
+        Returns a list of node IDs, ranked by 
+        """
+        if len(path) == 0:
+            raise Exception("Ranking with empty path not implemented.")
+
+        source_address = self.get_address(path)
+
+        costs = []
+        for node_label, addresses in self.addresses.items():
+            # do not calculate paths from one node to itself
+            if node_label != path[-1]:
+                best_cost = min([ self.cb.get_walk_cost(source = source_address, target = target_address)
+                                    for (_memory, target_address) in addresses.items()
+                                ])
+                costs.append((node_label, best_cost))
+        
+        ranking, _costs = zip(*sorted(costs, key = lambda pair: pair[1]))
+
+        return ranking
+
+
+class PathCostWithStateNodes(PathCost):
+    def __init__(self) -> None:
+        super().__init__()
+    
+    def run_infomap( self
+                   , netfile: str
+                   , directed: bool
+                   , trials: Optional[int]
+                   , seed: Optional[int]
+                   , max_order: Optional[int]
+                   , move_to_lower_order: Optional[bool]
+                   ) -> PathCost:
+        super().run_infomap( netfile
+                           , directed            = directed
+                           , trials              = trials
+                           , seed                = seed
+                           )
+
+        # build a dictionary to remember which nodes are valid next steps
+        self._build_constraints( netfile             = netfile
+                               , directed            = directed
+                               , max_order           = max_order
+                               , move_to_lower_order = move_to_lower_order
+                               )
+        
+        return self
+    
     def _build_constraints( self
                           , netfile: str
                           , directed: bool
@@ -224,41 +319,6 @@ class PathCost:
                 # transitions between state nodes inside the same physical node are not allowed
                 if next_state_stateID != current_state_ID and next_state_memory in valid_next_memories:
                     self.valid_next_state[current_state_ID].append(next_state_stateID)
-
-    def get_path_cost_directed(self, u: int, v: int) -> float:
-        """
-        Calculate the path cost for the directed edge (u,v).
-
-        Parameters
-        ----------
-        u: int
-            The source node.
-
-        v: int
-            The target node.
-        """
-        if u == v:
-            raise Exception("Those are the same nodes, don't do this.")
-
-        return self.cb.get_path_cost_forward(self.addresses[u]) \
-             + self.cb.get_walk_cost(self.addresses[u], self.addresses[v])
-
-    def get_path_cost_undirected(self, u: int, v: int) -> float:
-        """
-        Calculate the path cost for the undirected edge {u,v} as the average
-        of the path costs of the directed edges (u,v) and (v,u).
-
-        Parameters
-        ----------
-        u: int
-            The source node.
-
-        v: int
-            The target node.
-        """
-        return 0.5 * ( self.get_path_cost_directed(u, v)
-                     + self.get_path_cost_directed(v, u)
-                     )
     
     def predict_path(self, start_node: int, steps: int) -> List[int]:
         """

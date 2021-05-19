@@ -1,6 +1,7 @@
 from abc         import ABCMeta, abstractmethod
 from collections import defaultdict
 from infomap     import Infomap
+from math        import trunc
 from typing      import Dict, List, Tuple
 
 from ..util import *
@@ -32,7 +33,7 @@ class NetworkFromInfomap(Network):
     def get_nodes(self) -> List[int]:
         """Returns the nodes."""
         # assuming for now that we will use state nodes
-        return sorted([node.state_id for node in infomap.nodes])
+        return sorted([node.state_id for node in self.infomap.nodes])
 
     def get_edges(self) -> List[int]:
         """Returns the edges."""
@@ -285,7 +286,7 @@ class Partition(metaclass = ABCMeta):
         self.flows = dict()
 
         # paths to nodes, such as "1:1:2" for node 2 in submodule 1 of module 1.
-        self.paths = dict()
+        self.paths = None
 
     def get_modules(self) -> Dict:
         """
@@ -339,7 +340,7 @@ class PartitionFromTreeFile(Partition):
 
 class PartitionFromInfomap(Partition):
     """
-    A class for reading partitions from Infomap instances.
+    A class for reading partitions from Infomap instances using physical nodes.
     """
     def __init__(self, infomap: Infomap) -> None:
         """
@@ -352,15 +353,69 @@ class PartitionFromInfomap(Partition):
         """
         super().__init__()
 
-        for node in infomap.tree:
+        if infomap.memoryInput:
+            self.paths = defaultdict(lambda: dict())
+        else:
+            self.paths = dict()
+
+        self.node_IDs_to_labels = infomap.names
+
+        def state_ID_to_memory_label(state_ID, num_nodes = len(infomap.names)):
+            memory = trunc((state_ID-2)/(num_nodes-1))
+            return self.node_IDs_to_labels[memory] if memory > 0 else "{}"
+
+        self.state_ID_to_memory_label = state_ID_to_memory_label
+
+        self._load_from_tree( tree        = infomap.get_tree()
+                            , get_node_ID = lambda node: self.node_IDs_to_labels[node.node_id]
+                            , with_state  = infomap.memoryInput
+                            )
+    
+    def _load_from_tree(self, tree, get_node_ID, with_state: bool) -> None:
+        """
+        Do the actual reading of the partition.
+
+        Parameters
+        ----------
+        tree
+            The tree from infomap.
+        
+        get_node_ID
+            A function that takes and InfoNode and returns a node ID.
+
+        with_state: bool
+            Whether the partition is for a state network.
+        """
+        for node in tree:
             self.modules[node.path]["flow"]  = node.data.flow
             self.modules[node.path]["enter"] = node.data.enter_flow
             self.modules[node.path]["exit"]  = node.data.exit_flow
 
             if node.is_leaf:
-                nodeID = node.state_id if infomap.memoryInput else node.node_id
-                self.paths[nodeID] = node.path
-                # ToDo: we probabl don't need the below
-                for prefix in inits(node.path):
-                    prefix = tuple(prefix)
-                    self.modules[prefix]["nodes"].add(nodeID)
+                node_ID = get_node_ID(node)
+                self.modules[node.path]["nodes"].add(node_ID)
+
+                if with_state:
+                    self.paths[node_ID][self.state_ID_to_memory_label(state_ID = node.state_id)] = node.path
+                else:
+                    self.paths[node_ID] = node.path
+
+
+class StatePartitionFromInfomap(Partition):
+    """
+    A class for reading partitions from Infomap instances using state nodes.
+    """
+    def __init__(self, infomap: Infomap) -> None:
+        """
+        Initialise and read the partition from the infomap instance.
+
+        Parameters
+        ----------
+        infomap: Infomap
+            The infomap instance.
+        """
+        super().__init__()
+
+        self._load_from_tree( tree        = infomap.tree
+                            , get_node_ID = lambda node: node.state_id
+                            )
