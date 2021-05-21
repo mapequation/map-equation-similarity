@@ -1,5 +1,5 @@
 from numpy  import log2, inf
-from typing import List, Dict
+from typing import Dict, Tuple
 
 class CodeBook:
     """
@@ -44,7 +44,7 @@ class CodeBook:
         return indent * " " + f"flow={self.flow:.2f}, enter={self.enter:.2f}, exit={self.exit:.2f}, norm={self.normaliser:.2f}, enter_cost={self.enter_cost:.2f}, exit_cost={self.exit_cost:.2f} {subs}"
 
 
-    def insert_path(self, path: List[int], flow: float, enter: float, exit: float) -> None:
+    def insert_path(self, path: Tuple[int, ...], flow: float, enter: float, exit: float) -> None:
         """
         Inserts a path with corresponding flow data. A path can point to a module
         or a leaf node.
@@ -103,7 +103,7 @@ class CodeBook:
             self.code_book[m].calculate_costs()
             self.code_book[m].enter_cost = -log2(self.code_book[m].enter / self.normaliser) if self.normaliser > 0.0 and self.code_book[m].enter > 0.0 else inf
 
-    def get_flow(self, path: List[int]) -> float:
+    def get_flow(self, path: Tuple[int, ...]) -> float:
         """
         Returns the flow of the node that is addressed by `path`.
 
@@ -116,7 +116,7 @@ class CodeBook:
             return self.flow
         return self.code_book[path[0]].get_flow(path[1:])
 
-    def get_walk_cost(self, source: List[int], target: List[int]) -> float:
+    def get_walk_cost(self, source: Tuple[int, ...], target: Tuple[int, ...]) -> float:
         """
         Returns the walk cost, in bits, between two paths.
         For that, we first determine and clip off the common prefix of both paths.
@@ -137,7 +137,7 @@ class CodeBook:
         return self.get_path_cost_reverse(source) \
              + self.get_path_cost_forward(target)
 
-    def get_path_cost_forward(self, path: List[int]) -> float:
+    def get_path_cost_forward(self, path: Tuple[int, ...]) -> float:
         """
         The cost, in bits, for descending along a path.
 
@@ -157,7 +157,7 @@ class CodeBook:
         return self.code_book[path[0]].enter_cost \
              + self.code_book[path[0]].get_path_cost_forward(path[1:])
 
-    def get_path_cost_reverse(self, path: List[int]) -> float:
+    def get_path_cost_reverse(self, path: Tuple[int, ...]) -> float:
         """
         The cost, in bits, for ascending along a path without visiting the 
         starting node.
@@ -178,7 +178,7 @@ class CodeBook:
         return self.code_book[path[0]].exit_cost \
              + self.code_book[path[0]].get_path_cost_reverse(path[1:])
 
-    def get_walk_probability(self, source: List[int], target: List[int]) -> float:
+    def get_walk_probability(self, source: Tuple[int, ...], target: Tuple[int, ...]) -> float:
         """
         Probability of walking along the path from `source` to `target`.
         For that, we first determine and clip off the common prefix of both paths.
@@ -204,7 +204,7 @@ class CodeBook:
         return self.get_path_probability_reverse(source) \
              * self.get_path_probability_forward(target, self.code_book[source[0]].enter)
 
-    def get_path_probability_forward(self, path: List[int], exclude: float) -> float:
+    def get_path_probability_forward(self, path: Tuple[int, ...], exclude: float) -> float:
         """
         Probability of descending along a path.
 
@@ -224,7 +224,7 @@ class CodeBook:
         return self.code_book[path[0]].enter / (self.normaliser - exclude) \
              * self.code_book[path[0]].get_path_probability_forward(path[1:], self.code_book[path[0]].exit)
 
-    def get_path_probability_reverse(self, path: List[int]) -> float:
+    def get_path_probability_reverse(self, path: Tuple[int, ...]) -> float:
         """
         The probability of ascending along a path without visiting the 
         starting node.

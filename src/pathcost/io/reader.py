@@ -2,7 +2,7 @@ from abc         import ABCMeta, abstractmethod
 from collections import defaultdict
 from infomap     import Infomap
 from math        import trunc
-from typing      import Dict, List, Tuple
+from typing      import DefaultDict, Dict, List, Set, Tuple, Union
 
 from ..util import *
 
@@ -137,9 +137,9 @@ class NetworkFromNetFile(Network):
         directed: bool = False
             Whether the network is directed.
         """
-        self.directed = directed
-        self.nodes    = []
-        self.edges    = []
+        self.directed : bool                         = directed
+        self.nodes    : List[int]                    = []
+        self.edges    : List[Tuple[int, int, float]] = []
 
         with open(filename, "r") as fh:
             line = fh.readline()
@@ -156,8 +156,10 @@ class NetworkFromNetFile(Network):
                 edge = line.split()
                 if len(edge) == 2:
                     u, v, w = edge[0], edge[1], 1.0
-                elif len(...) == 3:
+                elif len(edge) == 3:
                     u, v, w = edge[0], edge[1], edge[2]
+                else: 
+                    raise Exception(f"Unexpected data in edge: {edge}")
                 self.edges.append((int(u),int(v),float(w)))
                 line = fh.readline()
 
@@ -192,10 +194,10 @@ class NetworkFromStateFile(Network):
         directed: bool = False
             Whether the network is directed.
         """
-        self.directed   = directed
-        self.nodes      = dict()
-        self.stateNodes = dict()
-        self.edges      = list()
+        self.directed   : bool                                  = directed
+        self.nodes      : Dict[int, str]                        = dict()
+        self.stateNodes : Dict[int, Dict[str, Union[int, str]]] = dict()
+        self.edges      : List[Tuple[int, int, float]]          = list()
 
         with open(filename, "r") as fh:
             line = fh.readline()
@@ -249,11 +251,11 @@ class NetworkFromStateFile(Network):
                 self.edges.append((u,v,w))
                 line = fh.readline()
 
-    def get_nodes(self) -> List[int]:
+    def get_nodes(self) -> Dict[int, str]:
         """Returns the nodes."""
         return self.nodes
     
-    def get_state_nodes(self) -> List[int]:
+    def get_state_nodes(self) -> Dict[int, Dict[str, Union[int, str]]]:
         """Returns the state nodes."""
         return self.stateNodes
 
@@ -273,34 +275,35 @@ class Partition(metaclass = ABCMeta):
     Interface for partitions. Partitions can be read from files or directly
     from an Infomap instance.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         # all modules with their nodes
-        self.modules = defaultdict(lambda: dict( nodes = set()
-                                               , flow  = 0.0
-                                               , enter = 0.0
-                                               , exit  = 0.0
-                                               )
-                                  )
+        self.modules : DefaultDict[Tuple[int, ...], Dict[str, Union[Set[int], float]]] \
+          = defaultdict(lambda: dict( nodes = set()
+                                    , flow  = 0.0
+                                    , enter = 0.0
+                                    , exit  = 0.0
+                                    )
+                       )
 
         # flows of the nodes
-        self.flows = dict()
+        self.flows : Dict[int, float] = dict()
 
         # paths to nodes, such as "1:1:2" for node 2 in submodule 1 of module 1.
-        self.paths = None
+        self.paths : DefaultDict[str, Dict[str, Tuple[int, ...]]]
 
-    def get_modules(self) -> Dict:
+    def get_modules(self) -> Dict[Tuple[int, ...], Dict[str, Union[Set[int], float]]]:
         """
         Returns the modules.
         """
         return self.modules
 
-    def get_flows(self) -> Dict:
+    def get_flows(self) -> Dict[int, float]:
         """
         Returns the flows.
         """
         return self.flows
 
-    def get_paths(self) -> Dict:
+    def get_paths(self) -> DefaultDict[str, Dict[str, Tuple[int, ...]]]:
         """
         Returns a dictionary for looking up the paths for nodes.
         """
@@ -358,9 +361,9 @@ class PartitionFromInfomap(Partition):
         else:
             self.paths = dict()
 
-        self.node_IDs_to_labels = infomap.names
+        self.node_IDs_to_labels : Dict[int, str] = infomap.names
 
-        def state_ID_to_memory_label(state_ID, num_nodes = len(infomap.names)):
+        def state_ID_to_memory_label(state_ID: int, num_nodes: int = len(infomap.names)):
             memory = trunc((state_ID-2)/(num_nodes-1))
             return self.node_IDs_to_labels[memory] if memory > 0 else "{}"
 
@@ -399,6 +402,15 @@ class PartitionFromInfomap(Partition):
                     self.paths[node_ID][self.state_ID_to_memory_label(state_ID = node.state_id)] = node.path
                 else:
                     self.paths[node_ID] = node.path
+        
+        # ToDo: should we do this here or in pathcost in get_address?
+        # in case we're using state files without a prior, it can be that some
+        # physical nodes don't have an epsilon-state. Then we have to make sure,
+        # for the next element prediction, that the 
+        if with_state:
+            for node_ID in list(self.paths.keys()):
+                if len(self.paths[node_ID]) == 1:
+                    self.paths[node_ID] = { "{}" : address for (_node_label, address) in self.paths[node_ID].items() }
 
 
 class StatePartitionFromInfomap(Partition):

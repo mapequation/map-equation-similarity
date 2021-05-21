@@ -1,6 +1,6 @@
-from typing import List, Optional
+from typing import Any, List, Optional
 
-def inits(l: List) -> List:
+def inits(l: List[Any]) -> List[List[Any]]:
     """
     Generate the prefixes of a list, excluding the empty and full prefix!
 
@@ -14,7 +14,7 @@ def inits(l: List) -> List:
         yield l[:init]
 
 
-def suffixes(l: List) -> List:
+def suffixes(l: List[Any]) -> List[List[Any]]:
     """
     Generates the suffixes of a list, including the empty and full suffix!
 
@@ -27,7 +27,7 @@ def suffixes(l: List) -> List:
         yield l[suffix:]
 
 
-def isPrefix(l1: List, l2: List) -> bool:
+def isPrefix(l1: List[Any], l2: List[Any]) -> bool:
     """
     Checks whether l1 is a prefix of l2.
     For example, [1,2] is a prefix of [1,2,3,4] but [1,3] is not.
@@ -66,7 +66,6 @@ def splitQuotationAware(s: str, sep: Optional[str] = " ") -> List[str]:
     """
     res = [""]
     i   = 0
-    acc = ""
     while i < len(s):
         if s[i] == sep:
             res.append("")
