@@ -37,6 +37,7 @@ class PathCost:
     def run_infomap( self
                    , netfile: str
                    , directed: bool
+                   , teleportation_probability: float
                    , trials: Optional[int] = 1
                    , seed: Optional[int] = 42
                    ) -> PathCost:
@@ -65,7 +66,7 @@ class PathCost:
         """
 
         # run infomap
-        infomap_args = [f"--silent --num-trials {trials} --seed {seed}"]
+        infomap_args = [f"--silent --num-trials {trials} --seed {seed} --teleportation-probability {teleportation_probability}"]
         if directed:
             infomap_args.append("--directed")
 
