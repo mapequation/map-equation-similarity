@@ -9,11 +9,11 @@ class CodeBook:
     """
     def __init__(self) -> None:
         """Creates an empty codebook."""
-        self.code_book:  Dict[int, CodeBook] = dict()
-        self.flow:       float = 0.0
-        self.enter:      float = 0.0
-        self.exit:       float = 0.0
-        self.normaliser: float = 0.0
+        self.code_book  : Dict[int, CodeBook] = dict()
+        self.flow       : float               = 0.0
+        self.enter      : float               = 0.0
+        self.exit       : float               = 0.0
+        self.normaliser : float               = 0.0
 
     def __repr__(self) -> str:
         """

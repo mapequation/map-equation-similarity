@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from infomap     import Infomap
 from numpy       import inf
 from typing      import List, Optional

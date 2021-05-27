@@ -2,7 +2,7 @@ from abc         import ABCMeta, abstractmethod
 from collections import defaultdict
 from infomap     import Infomap
 from math        import trunc
-from typing      import DefaultDict, Dict, List, Set, Tuple, Union
+from typing      import Callable, DefaultDict, Dict, List, Set, Tuple, Union
 
 from ..util import *
 
@@ -363,18 +363,18 @@ class PartitionFromInfomap(Partition):
 
         self.node_IDs_to_labels : Dict[int, str] = infomap.names
 
-        def state_ID_to_memory_label(state_ID: int, num_nodes: int = len(infomap.names)):
+        def state_ID_to_memory_label(state_ID: int, num_nodes: int = len(infomap.names)) -> str:
             memory = trunc((state_ID-2)/(num_nodes-1))
             return self.node_IDs_to_labels[memory] if memory > 0 else "{}"
 
-        self.state_ID_to_memory_label = state_ID_to_memory_label
+        self.state_ID_to_memory_label : Callable[[int, Optional[int]], str] = state_ID_to_memory_label
 
-        self._load_from_tree( tree        = infomap.get_tree()
+        self._load_from_tree( tree        = infomap.get_tree(states = infomap.memoryInput)
                             , get_node_ID = lambda node: self.node_IDs_to_labels[node.node_id]
                             , with_state  = infomap.memoryInput
                             )
     
-    def _load_from_tree(self, tree, get_node_ID, with_state: bool) -> None:
+    def _load_from_tree(self, tree, get_node_ID: Callable[[int], str], with_state: bool) -> None:
         """
         Do the actual reading of the partition.
 
@@ -406,7 +406,7 @@ class PartitionFromInfomap(Partition):
         # ToDo: should we do this here or in pathcost in get_address?
         # in case we're using state files without a prior, it can be that some
         # physical nodes don't have an epsilon-state. Then we have to make sure,
-        # for the next element prediction, that the 
+        # for the next element prediction, that the
         if with_state:
             for node_ID in list(self.paths.keys()):
                 if len(self.paths[node_ID]) == 1:
