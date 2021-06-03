@@ -138,7 +138,7 @@ class NetworkFromNetFile(Network):
             Whether the network is directed.
         """
         self.directed : bool                         = directed
-        self.nodes    : List[int]                    = []
+        self.nodes    : Dict[int, str]               = dict()
         self.edges    : List[Tuple[int, int, float]] = []
 
         with open(filename, "r") as fh:
@@ -148,10 +148,11 @@ class NetworkFromNetFile(Network):
 
             line = fh.readline()
             while not (line.startswith("*Edges") or line.startswith("*Links")):
-                n, _ = line.split()
-                self.nodes.append(int(n))
+                node_ID, node_label = line.strip().split()
+                self.nodes[int(node_ID)] = node_label.strip("\"")
                 line = fh.readline()
 
+            line = fh.readline()
             while line:
                 edge = line.split()
                 if len(edge) == 2:
@@ -163,7 +164,7 @@ class NetworkFromNetFile(Network):
                 self.edges.append((int(u),int(v),float(w)))
                 line = fh.readline()
 
-    def get_nodes(self) -> List[int]:
+    def get_nodes(self) -> Dict[int, str]:
         """Returns the nodes."""
         return self.nodes
 

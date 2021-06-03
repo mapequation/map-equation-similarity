@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 from infomap     import Infomap
-from numpy       import inf
 from typing      import List, Optional
 
 from .codebook   import CodeBook
 from .io.reader  import *
-from .util       import inits, splitQuotationAware
 
-class PathCost:
+class PathCost():
     """
     PathCost derives codebooks from the modular structure of a network and uses
     them to caluclate the cost in bits to
@@ -72,6 +70,8 @@ class PathCost:
         self.infomap = Infomap(" ".join(infomap_args))
         self.infomap.read_file(netfile)
         self.infomap.run()
+
+        self.memory : bool = self.infomap.memoryInput
 
         # extract the partition from infomap
         partition      = PartitionFromInfomap(self.infomap)
@@ -137,24 +137,32 @@ class PathCost:
     def get_address(self, path: Tuple[str, ...]) -> Tuple[int, ...]:
         """
         """
-        # if the path is empty, we start at the root of the partition
-        if len(path) == 0:
-            return ()
-        
-        # if the path only contains one node, we start at the epsilon
-        # node of the respective physical node
-        if len(path) == 1:
-            return (self.addresses[path[0]]["{}"],)
-        
-        # if the path contains two nodes, we start at the corresponding
-        # memory node if it has an own address, otherwise we begin at the
-        # epsilon node of the physical node, which has the same address
-        # as all other memory nodes in that physical node that don't have
-        # an own address
-        if path[-2] in self.addresses[path[-1]]:
-            return self.addresses[path[-1]][path[-2]]
+        # if we don't use memory, we forget all history and simply
+        # get the address of the last node in the pathj
+        if not self.memory:
+            return self.addresses[path[-1]]
+
+        # but if there is memory, we have to select the address in
+        # the correct node that respects the given path
         else:
-            return self.addresses[path[-1]]["{}"]
+            # if the path is empty, we start at the root of the partition
+            if len(path) == 0:
+                return ()
+            
+            # if the path only contains one node, we start at the epsilon
+            # node of the respective physical node
+            if len(path) == 1:
+                return (self.addresses[path[0]]["{}"],)
+            
+            # if the path contains two nodes, we start at the corresponding
+            # memory node if it has an own address, otherwise we begin at the
+            # epsilon node of the physical node, which has the same address
+            # as all other memory nodes in that physical node that don't have
+            # an own address
+            if path[-2] in self.addresses[path[-1]]:
+                return self.addresses[path[-1]][path[-2]]
+            else:
+                return self.addresses[path[-1]]["{}"]
 
 
     def predict_next_element(self, path: Tuple[str, ...]) -> str:
@@ -189,9 +197,12 @@ class PathCost:
         for node_label, addresses in self.addresses.items():
             # do not calculate paths from one node to itself
             if node_label != path[-1]:
-                best_cost = min([ self.cb.get_walk_cost(source = source_address, target = target_address)
-                                    for (_memory, target_address) in addresses.items()
-                                ])
+                if not self.memory:
+                    best_cost = self.cb.get_walk_cost(source = source_address, target = addresses)
+                else:
+                    best_cost = min([ self.cb.get_walk_cost(source = source_address, target = target_address)
+                                          for (_memory, target_address) in addresses.items()
+                                    ])
                 costs.append((node_label, best_cost))
         
         ranking, _costs = zip(*sorted(costs, key = lambda pair: pair[1]))
@@ -225,6 +236,7 @@ class PathCost:
                                   ])
                      for node_label, addresses in self.addresses.items()
                }
+
 
 # class PathCostWithStateNodes(PathCost):
 #     def __init__(self) -> None:

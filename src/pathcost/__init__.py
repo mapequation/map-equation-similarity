@@ -2,6 +2,6 @@ from .         import io
 from .codebook import CodeBook
 from .pathcost import PathCost
 
-__all__ = ["io"]
+__all__ = ["io", "CodeBook", "PathCost"]
 
-__version__ = "0.2.0a"
+__version__ = "0.2.1"
