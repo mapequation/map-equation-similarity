@@ -4,4 +4,4 @@ from .pathcost import PathCost
 
 __all__ = ["io", "CodeBook", "PathCost"]
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"

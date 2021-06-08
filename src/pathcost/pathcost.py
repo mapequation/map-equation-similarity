@@ -32,40 +32,46 @@ class PathCost():
         return self
 
     def run_infomap( self
-                   , netfile: str
-                   , directed: bool
-                   , teleportation_probability: float
-                   , trials: Optional[int] = 1
-                   , seed: Optional[int] = 42
+                   , netfile                   : str
+                   , directed                  : bool
+                   , teleportation_probability : float
+                   , trials                    : int  = 1
+                   , seed                      : int  = 42
+                   , one_level                 : bool = False
                    ) -> PathCost:
         """
         Run infomap on the supplied network file and use the partition it finds.
 
         Parameters
         ----------
-        netfile: str
+        netfile : str
             The file that contains the network.
 
-        directed: bool = False
+        directed : bool = False
             Whether the network is directed or not.
 
-        trials: Optional[int]
+        teleportation_probability : float
+            The teleportation probability.
+
+        trials : int = 1
             Number of trials that infomap should run.
         
-        seed: Optional[int]
+        seed : int = 42
             The seed for infomap.
+
+        one_level : bool = False
+            Controls whether to run infomap search or simply output the one-level partition.
         
-        max_order: Optional[int] = 2
-            The maximum order of the model.
-        
-        move_to_lower_order: Optional[bool] = False
-            Whether moves to lower order memory are allowed.
         """
 
         # run infomap
         infomap_args = [f"--silent --num-trials {trials} --seed {seed} --teleportation-probability {teleportation_probability}"]
+        
         if directed:
             infomap_args.append("--directed")
+        
+        if one_level:
+            infomap_args.append("--no-infomap")
 
         self.infomap = Infomap(" ".join(infomap_args))
         self.infomap.read_file(netfile)
