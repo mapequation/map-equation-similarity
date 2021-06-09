@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from infomap     import Infomap
-from typing      import List, Optional
+from typing      import List
 
 from .codebook   import CodeBook
 from .io.reader  import *
@@ -38,6 +38,7 @@ class PathCost():
                    , trials                    : int  = 1
                    , seed                      : int  = 42
                    , one_level                 : bool = False
+                   , rawdir                    : bool = False
                    ) -> PathCost:
         """
         Run infomap on the supplied network file and use the partition it finds.
@@ -62,6 +63,8 @@ class PathCost():
         one_level : bool = False
             Controls whether to run infomap search or simply output the one-level partition.
         
+        rawdir : bool = False
+            Whether to use `-f rawdir` option.
         """
 
         # run infomap
@@ -72,6 +75,9 @@ class PathCost():
         
         if one_level:
             infomap_args.append("--no-infomap")
+
+        if rawdir:
+            infomap_args.append("-f rawdir")
 
         self.infomap = Infomap(" ".join(infomap_args))
         self.infomap.read_file(netfile)
