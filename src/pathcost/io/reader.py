@@ -346,7 +346,7 @@ class PartitionFromInfomap(Partition):
     """
     A class for reading partitions from Infomap instances using physical nodes.
     """
-    def __init__(self, infomap: Infomap) -> None:
+    def __init__(self, infomap: Infomap, netfile: str) -> None:
         """
         Initialise and read the partition from the infomap instance.
 
@@ -359,16 +359,29 @@ class PartitionFromInfomap(Partition):
 
         if infomap.memoryInput:
             self.paths = defaultdict(lambda: dict())
+
+            self.state_ID_to_memory_label : Dict[int, str] = dict()
+            with open(netfile) as fh:
+                line = fh.readline()
+                while not line.startswith("*States"):
+                    line = fh.readline()
+                line = fh.readline()
+                while not line.startswith("*Links"):
+                    stateID, _physicalID, stateLabel = line.split()
+                    memory = stateLabel.strip("\"").split("_")[0].strip("{}")
+                    self.state_ID_to_memory_label[int(stateID)] = memory
+                    line = fh.readline()
+
         else:
             self.paths = dict()
 
         self.node_IDs_to_labels : Dict[int, str] = infomap.names
 
-        def state_ID_to_memory_label(state_ID: int, num_nodes: int = len(infomap.names)) -> str:
-            memory = trunc((state_ID-2)/(num_nodes-1))
-            return self.node_IDs_to_labels[memory] if memory > 0 else "{}"
+        # def state_ID_to_memory_label(state_ID: int, num_nodes: int = len(infomap.names)) -> str:
+        #     memory = trunc((state_ID-2)/(num_nodes-1))
+        #     return self.node_IDs_to_labels[memory] if memory > 0 else "{}"
 
-        self.state_ID_to_memory_label : Callable[[int, Optional[int]], str] = state_ID_to_memory_label
+        #self.state_ID_to_memory_label : Callable[[int, Optional[int]], str] = state_ID_to_memory_label
 
         self._load_from_tree( tree        = infomap.get_tree(states = infomap.memoryInput)
                             , get_node_ID = lambda node: self.node_IDs_to_labels[node.node_id]
@@ -400,7 +413,8 @@ class PartitionFromInfomap(Partition):
                 self.modules[node.path]["nodes"].add(node_ID)
 
                 if with_state:
-                    self.paths[node_ID][self.state_ID_to_memory_label(state_ID = node.state_id)] = node.path
+                    #self.paths[node_ID][self.state_ID_to_memory_label(state_ID = node.state_id)] = node.path
+                    self.paths[node_ID][self.state_ID_to_memory_label[node.state_id]] = node.path
                 else:
                     self.paths[node_ID] = node.path
         
