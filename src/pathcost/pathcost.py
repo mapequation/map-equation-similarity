@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from infomap     import Infomap
+from numpy       import log2
 from typing      import List
 
 from .codebook   import CodeBook
@@ -123,12 +124,7 @@ class PathCost():
         v: int
             The target node.
         """
-        # if u == v:
-        #    raise Exception("Those are the same nodes, don't do this.")
-        #
-        # return self.cb.get_path_cost_forward(self.addresses[u]) \
-        #      + self.cb.get_walk_cost(self.addresses[u], self.addresses[v])
-        return self.cb.get_walk_cost(self.addresses[u], self.addresses[v])
+        return -log2(self.cb.get_walk_rate(self.addresses[u], self.addresses[v]))
 
     def get_path_cost_undirected(self, u: int, v: int) -> float:
         """
@@ -143,9 +139,9 @@ class PathCost():
         v: int
             The target node.
         """
-        return 0.5 * ( self.get_path_cost_directed(u, v)
-                     + self.get_path_cost_directed(v, u)
-                     )
+        return -0.5 * ( log2(self.get_path_cost_directed(u, v))
+                      + log2(self.get_path_cost_directed(v, u))
+                      )
 
     def get_address(self, path: Tuple[str, ...]) -> Tuple[int, ...]:
         """
@@ -222,9 +218,10 @@ class PathCost():
 
         return ranking
 
-    def predict_next_element_probabilities(self, path: Tuple[str, ...]) -> Dict[str, float]:
+
+    def predict_next_element_rates(self, path: Tuple[str, ...]) -> Dict[str, float]:
         """
-        Returns a dictionary with node labels as keys and the probability that
+        Returns a dictionary with node labels as keys and the rates at which
         the respective node is the next node as values.
 
         Parameters
@@ -235,7 +232,7 @@ class PathCost():
         Returns
         -------
         Dict[str, float]
-            A dictionary with node labels as keys and the probability that
+            A dictionary with node labels as keys and the rate at which
             the respective node is the next node as values.
         """
         if len(path) == 0:
@@ -244,12 +241,12 @@ class PathCost():
         source_address = self.get_address(path)
 
         if not self.memory:
-            return { node_label : self.cb.get_walk_probability(source = source_address, target = target_address)
+            return { node_label : self.cb.get_walk_rate(source = source_address, target = target_address)
                          for node_label, target_address in self.addresses.items()
                    }
 
         else:
-            return { node_label : sum([ self.cb.get_walk_probability(source = source_address, target = target_address)
+            return { node_label : sum([ self.cb.get_walk_rate(source = source_address, target = target_address)
                                             for target_address in addresses.values()
                                       ])
                          for node_label, addresses in self.addresses.items()
