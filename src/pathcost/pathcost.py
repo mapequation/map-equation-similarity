@@ -220,9 +220,9 @@ class PathCost():
         return ranking
 
 
-    def predict_next_element_probabilities(self, path: Tuple[str, ...]) -> Dict[str, float]:
+    def predict_next_element_rates(self, path: Tuple[str, ...]) -> Dict[str, float]:
         """
-        Returns a dictionary with node labels as keys and the probability that
+        Returns a dictionary with node labels as keys and the rates at which
         the respective node is the next node as values.
 
         Parameters
@@ -233,7 +233,7 @@ class PathCost():
         Returns
         -------
         Dict[str, float]
-            A dictionary with node labels as keys and the probability that
+            A dictionary with node labels as keys and the rate at which
             the respective node is the next node as values.
         """
         if len(path) == 0:
