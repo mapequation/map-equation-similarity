@@ -34,7 +34,7 @@ class CodeBook:
         ----------
         indent: int
             The indentation level
-        
+
         Returns
         -------
         str
@@ -42,7 +42,6 @@ class CodeBook:
         """
         subs = "".join([f"\n{cb._serialise(indent + 4)}" for cb in self.code_book.values()])
         return indent * " " + f"flow={self.flow:.2f}, enter={self.enter:.2f}, exit={self.exit:.2f}, norm={self.normaliser:.2f}, enter_cost={self.enter_cost:.2f}, exit_cost={self.exit_cost:.2f} {subs}"
-
 
     def insert_path(self, path: Tuple[int, ...], flow: float, enter: float, exit: float) -> None:
         """
@@ -116,9 +115,12 @@ class CodeBook:
             return self.flow
         return self.code_book[path[0]].get_flow(path[1:])
 
-    def get_walk_cost(self, source: Tuple[int, ...], target: Tuple[int, ...]) -> float:
+    def get_walk_rate( self
+                     , source: Tuple[int, ...]
+                     , target: Tuple[int, ...]
+                     ) -> float:
         """
-        Returns the walk cost, in bits, between two paths.
+        Rate of walking along the path from `source` to `target`.
         For that, we first determine and clip off the common prefix of both paths.
         Then, we sum up the costs for exiting from the source path to the common
         ancestor and the costs for visiting the target path.
@@ -130,36 +132,52 @@ class CodeBook:
 
         target: List[int]
             The target path, that is the address of a node.
+
+        Returns
+        -------
+        float
+            The rate of walking along the path between the given `source` and `target`.
         """
+        # self-link
+        if len(source) == 1 and len(target) == 1 and source[0] == target[0]:
+            return self.code_book[target[0]].enter / self.normaliser
+
+        # clip off common prefixes
         if len(source) > 0 and len(target) > 0 and source[0] == target[0]:
-            return self.code_book[source[0]].get_walk_cost(source[1:], target[1:])
+            return self.code_book[source[0]].get_walk_rate(source[1:], target[1:])
 
-        return self.get_path_cost_reverse(source) \
-             + self.get_path_cost_forward(target)
+        return self.get_path_rate_reverse(source) \
+             * self.get_path_rate_forward(target)
 
-    def get_path_cost_forward(self, path: Tuple[int, ...]) -> float:
+
+    def get_path_rate_forward( self
+                             , path: Tuple[int, ...]
+                             ) -> float:
         """
-        The cost, in bits, for descending along a path.
+        Rate of descending along a path.
 
         Parameters
         ----------
         path: List[int]
             A path that addresses a node.
-        
+
         Returns
         -------
         float
-            The cost, in bits, for descending along the given path.
+            The rate of descending along the given path.
         """
         if len(path) == 1:
-            return self.code_book[path[0]].enter_cost
+            return self.code_book[path[0]].enter / self.normaliser
 
-        return self.code_book[path[0]].enter_cost \
-             + self.code_book[path[0]].get_path_cost_forward(path[1:])
+        return self.code_book[path[0]].enter / self.normaliser \
+             * self.code_book[path[0]].get_path_rate_forward(path[1:])
 
-    def get_path_cost_reverse(self, path: Tuple[int, ...]) -> float:
+
+    def get_path_rate_reverse( self
+                             , path: Tuple[int, ...]
+                             ) -> float:
         """
-        The cost, in bits, for ascending along a path without visiting the 
+        The rate of ascending along a path without visiting the
         starting node.
 
         Parameters
@@ -170,77 +188,10 @@ class CodeBook:
         Returns
         -------
         float
-            The cost in bits for ascending along the given path.
+            The rate of ascending along the given path.
         """
-        if len(path) == 1:
-            return 0.0
-
-        return self.code_book[path[0]].exit_cost \
-             + self.code_book[path[0]].get_path_cost_reverse(path[1:])
-
-    def get_walk_probability(self, source: Tuple[int, ...], target: Tuple[int, ...]) -> float:
-        """
-        Probability of walking along the path from `source` to `target`.
-        For that, we first determine and clip off the common prefix of both paths.
-        Then, we sum up the costs for exiting from the source path to the common
-        ancestor and the costs for visiting the target path.
-
-        Parameters
-        ----------
-        source: List[int]
-            The source path, that is the address of a node.
-
-        target: List[int]
-            The target path, that is the address of a node.
-        
-        Returns
-        -------
-        float
-            The probability of walking along the path between the given `source` and `target`.
-        """
-        if len(source) > 0 and len(target) > 0 and source[0] == target[0]:
-            return self.code_book[source[0]].get_walk_probability(source[1:], target[1:])
-
-        return self.get_path_probability_reverse(source) \
-             * self.get_path_probability_forward(target, self.code_book[source[0]].enter)
-
-    def get_path_probability_forward(self, path: Tuple[int, ...], exclude: float) -> float:
-        """
-        Probability of descending along a path.
-
-        Parameters
-        ----------
-        path: List[int]
-            A path that addresses a node.
-        
-        Returns
-        -------
-        float
-            The probability of descending along the given path.
-        """
-        if len(path) == 1:
-            return self.code_book[path[0]].enter / (self.normaliser - exclude)
-
-        return self.code_book[path[0]].enter / (self.normaliser - exclude) \
-             * self.code_book[path[0]].get_path_probability_forward(path[1:], self.code_book[path[0]].exit)
-
-    def get_path_probability_reverse(self, path: Tuple[int, ...]) -> float:
-        """
-        The probability of ascending along a path without visiting the 
-        starting node.
-
-        Parameters
-        ----------
-        path: List[int]
-            A path that addresses a node.
-
-        Returns
-        -------
-        float
-            The probability of ascending along the given path.
-        """
-        if len(path) == 1:
+        if len(path) == 0:
             return 1.0
 
-        return self.code_book[path[0]].exit / (self.code_book[path[0]].normaliser - self.code_book[path[0]].code_book[path[1]].enter) \
-             * self.code_book[path[0]].get_path_probability_reverse(path[1:])
+        return self.code_book[path[0]].exit / self.code_book[path[0]].normaliser \
+             * self.code_book[path[0]].get_path_rate_reverse(path[1:])
