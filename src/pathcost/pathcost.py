@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from infomap     import Infomap
-from numpy       import log2
-from typing      import List, Optional as Maybe
+from infomap      import Infomap
+from numpy        import log2
+from numpy.random import choice
+from typing       import List, Optional as Maybe, Tuple
 
-from .codebook   import CodeBook
-from .io.reader  import *
+from .codebook    import CodeBook
+from .io.reader   import *
 
 class PathCost():
     """
@@ -222,9 +223,12 @@ class PathCost():
         return ranking
 
 
-    def predict_next_element_rates(self, path: Tuple[str, ...]) -> Dict[str, float]:
+    def predict_next_element_probabilities( self
+                                          , path: Tuple[str, ...]
+                                          , include_self_links : bool = True
+                                          ) -> Dict[str, float]:
         """
-        Returns a dictionary with node labels as keys and the rates at which
+        Returns a dictionary with node labels as keys and the probabilities that
         the respective node is the next node as values.
 
         Parameters
@@ -232,10 +236,13 @@ class PathCost():
         path: Tuple[str, ...]
             The path to the start node.
 
+        include_self_links: bool = True
+            Whether to include self-links.
+
         Returns
         -------
         Dict[str, float]
-            A dictionary with node labels as keys and the rate at which
+            A dictionary with node labels as keys and the probabilities that
             the respective node is the next node as values.
         """
         if len(path) == 0:
@@ -244,13 +251,45 @@ class PathCost():
         source_address = self.get_address(path)
 
         if not self.memory:
-            return { node_label : self.cb.get_walk_rate(source = source_address, target = target_address)
-                         for node_label, target_address in self.addresses.items()
-                   }
+            rates = { node_label : self.cb.get_walk_rate(source = source_address, target = target_address)
+                          for node_label, target_address in self.addresses.items()
+                          if include_self_links or target_address != source_address
+                    }
 
         else:
-            return { node_label : sum([ self.cb.get_walk_rate(source = source_address, target = target_address)
-                                            for target_address in addresses.values()
-                                      ])
-                         for node_label, addresses in self.addresses.items()
-                   }
+            rates = { node_label : sum([ self.cb.get_walk_rate(source = source_address, target = target_address)
+                                             for target_address in addresses.values()
+                                       ])
+                          for node_label, addresses in self.addresses.items()
+                          if include_self_links or not source_address in addresses
+                    }
+
+        s = sum(rates.values())
+        rates = { k : v /s for (k,v) in rates.items() }
+        return rates
+
+    def generate_network( self
+                        , num_links : int
+                        , include_self_links : bool = True
+                        ) -> Dict[Tuple[str, str], int]:
+        res : Dict[Tuple[str, str], int] = dict()
+
+        nodes_and_flows = [ (node_label, self.cb.get_flow(self.get_address(node_label)))
+                                for node_label in self.node_IDs_to_labels.values()
+                          ]
+        nodes, flows = zip(*nodes_and_flows)
+
+        for _ in range(num_links):
+            start_node = choice(nodes, size = None, p = flows)
+
+            next_elem_probabilities = self.predict_next_element_probabilities([start_node], include_self_links = include_self_links)
+            next_nodes, next_probabilities = zip(*next_elem_probabilities.items())
+
+            target_node = choice(next_nodes, size = None, p = next_probabilities)
+
+            link = (start_node, target_node)
+            if not link in res:
+                res[link] = 0
+            res[link] += 1
+
+        return res
