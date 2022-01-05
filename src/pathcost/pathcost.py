@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from infomap     import Infomap
 from numpy       import log2
-from typing      import List
+from typing      import List, Optional as Maybe
 
 from .codebook   import CodeBook
 from .io.reader  import *
@@ -17,7 +17,7 @@ class PathCost():
         Initialise.
         """
 
-    def from_infomap(self, infomap: Infomap) -> PathCost:
+    def from_infomap(self, infomap: Infomap, netfile : Maybe[str] = None) -> PathCost:
         """
         Construct codebooks from the supplied infomap instance.
 
@@ -25,6 +25,9 @@ class PathCost():
         ----------
         infomap: Infomap
             The infomap instance.
+
+        netfile: Maybe[str] = none
+            The file that contains the network (needed for of memory networks).
         """
         partition      : PartitionFromInfomap                                     = PartitionFromInfomap(infomap)
         self.modules   : Dict[Tuple[int, ...], Dict[str, Union[Set[int], float]]] = partition.get_modules()
@@ -147,7 +150,7 @@ class PathCost():
         """
         """
         # if we don't use memory, we forget all history and simply
-        # get the address of the last node in the pathj
+        # get the address of the last node in the path
         if not self.memory:
             return self.addresses[path[-1]]
 
