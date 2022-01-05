@@ -2,7 +2,7 @@ from abc         import ABCMeta, abstractmethod
 from collections import defaultdict
 from infomap     import Infomap
 from math        import trunc
-from typing      import Callable, DefaultDict, Dict, List, Set, Tuple, Union
+from typing      import Callable, DefaultDict, Dict, List, Set, Optional as Maybe, Tuple, Union
 
 from ..util import *
 
@@ -346,7 +346,7 @@ class PartitionFromInfomap(Partition):
     """
     A class for reading partitions from Infomap instances using physical nodes.
     """
-    def __init__(self, infomap: Infomap, netfile: str) -> None:
+    def __init__(self, infomap: Infomap, netfile: Maybe[str] = None) -> None:
         """
         Initialise and read the partition from the infomap instance.
 
@@ -354,6 +354,9 @@ class PartitionFromInfomap(Partition):
         ----------
         infomap: Infomap
             The infomap instance.
+
+        netfile: Maybe[str] = none
+            The file that contains the network (needed for of memory networks).
         """
         super().__init__()
 
