@@ -1,8 +1,9 @@
-from abc         import ABCMeta, abstractmethod
-from collections import defaultdict
-from infomap     import Infomap
-from math        import trunc
-from typing      import Callable, DefaultDict, Dict, List, Set, Optional as Maybe, Tuple, Union
+from __future__   import annotations
+from abc          import ABCMeta, abstractmethod
+from collections  import defaultdict
+from infomap      import Infomap
+from math         import trunc
+from typing       import Callable, DefaultDict, Dict, List, Set, Optional as Maybe, Tuple, Union
 
 from ..util import *
 
@@ -37,7 +38,7 @@ class NetworkFromInfomap(Network):
 
     def get_edges(self) -> List[int]:
         """Returns the edges."""
-        pass
+        raise NotImplemented
 
 
 class NetworkFromNetFileDisk(Network):
@@ -168,7 +169,7 @@ class NetworkFromNetFile(Network):
         """Returns the nodes."""
         return self.nodes
 
-    def get_edges(self) -> List[Tuple[int, int, float]]:
+    def get_edges(self) -> Iterator[Tuple[int, int, float]]:
         """Returns the edges."""
         if self.directed:
             for edge in self.edges:
@@ -260,7 +261,7 @@ class NetworkFromStateFile(Network):
         """Returns the state nodes."""
         return self.stateNodes
 
-    def get_edges(self) -> List[Tuple[int, int, float]]:
+    def get_edges(self) -> Iterator[Tuple[int, int, float]]:
         """Returns the edges."""
         if self.directed:
             for edge in self.edges:
@@ -278,7 +279,7 @@ class Partition(metaclass = ABCMeta):
     """
     def __init__(self) -> None:
         # all modules with their nodes
-        self.modules : DefaultDict[Tuple[int, ...], Dict[str, Union[Set[int], float]]] \
+        self.modules : DefaultDict[Tuple[int, ...], Dict[str, Set[str] | float]] \
           = defaultdict(lambda: dict( nodes = set()
                                     , flow  = 0.0
                                     , enter = 0.0
@@ -287,24 +288,24 @@ class Partition(metaclass = ABCMeta):
                        )
 
         # flows of the nodes
-        self.flows : Dict[int, float] = dict()
+        self.flows : Dict[str, float] = dict()
 
         # paths to nodes, such as "1:1:2" for node 2 in submodule 1 of module 1.
-        self.paths : DefaultDict[str, Dict[str, Tuple[int, ...]]]
+        self.paths : Dict[str, Tuple[int, ...]]
 
-    def get_modules(self) -> Dict[Tuple[int, ...], Dict[str, Union[Set[int], float]]]:
+    def get_modules(self) -> DefaultDict[Tuple[int, ...], Dict[str, Set[int] | float]]:
         """
         Returns the modules.
         """
         return self.modules
 
-    def get_flows(self) -> Dict[int, float]:
+    def get_flows(self) -> Dict[str, float]:
         """
         Returns the flows.
         """
         return self.flows
 
-    def get_paths(self) -> DefaultDict[str, Dict[str, Tuple[int, ...]]]:
+    def get_paths(self) -> Dict[str, Tuple[int, ...]]:
         """
         Returns a dictionary for looking up the paths for nodes.
         """
@@ -315,7 +316,9 @@ class PartitionFromTreeFile(Partition):
     """
     A class for reading partitions from tree files.
     """
-    def __init__(self, treefile: str) -> None:
+    def __init__( self
+                , treefile: str
+                ) -> None:
         """
         Initialise and read the tree file.
 
@@ -324,7 +327,11 @@ class PartitionFromTreeFile(Partition):
         treefile: str
             The tree file to read.
         """
+        raise NotImplemented
+        
         super().__init__()
+
+        self.paths = dict()
 
         with open(treefile, "r") as fh:
             for line in fh:
@@ -332,21 +339,25 @@ class PartitionFromTreeFile(Partition):
                     break
 
                 if not line.startswith("#"):
-                    path, flow, _, nodeID, _ = splitQuotationAware(line.strip())
+                    path, flow, name, _nodeID = splitQuotationAware(line.strip())
                     path   = tuple([int(x) for x in path.split(":")])
-                    nodeID = int(nodeID)
-                    self.flows[nodeID] = float(flow)
-                    self.paths[nodeID] = path
-                    for prefix in inits(self.paths[nodeID]):
+                    self.flows[name] = float(flow)
+                    self.paths[name] = path
+                    for prefix in inits(self.paths[name]):
                         module = tuple(prefix)
-                        self.modules[module]["nodes"].add(nodeID)
+                        self.modules[module]["nodes"].add(name)
+        
+        get_node_ID = id
 
 
 class PartitionFromInfomap(Partition):
     """
     A class for reading partitions from Infomap instances using physical nodes.
     """
-    def __init__(self, infomap: Infomap, netfile: Maybe[str] = None) -> None:
+    def __init__( self
+                , infomap: Infomap
+                , netfile: Maybe[str] = None
+                ) -> None:
         """
         Initialise and read the partition from the infomap instance.
 
@@ -360,38 +371,17 @@ class PartitionFromInfomap(Partition):
         """
         super().__init__()
 
-        if infomap.memoryInput:
-            self.paths = defaultdict(lambda: dict())
-
-            self.state_ID_to_memory_label : Dict[int, str] = dict()
-            with open(netfile) as fh:
-                line = fh.readline()
-                while not line.startswith("*States"):
-                    line = fh.readline()
-                line = fh.readline()
-                while not line.startswith("*Links"):
-                    stateID, _physicalID, stateLabel = line.split()
-                    memory = stateLabel.strip("\"").split("_")[0].strip("{}")
-                    self.state_ID_to_memory_label[int(stateID)] = memory
-                    line = fh.readline()
-
-        else:
-            self.paths = dict()
-
+        self.paths                               = dict()
         self.node_IDs_to_labels : Dict[int, str] = infomap.names
 
-        # def state_ID_to_memory_label(state_ID: int, num_nodes: int = len(infomap.names)) -> str:
-        #     memory = trunc((state_ID-2)/(num_nodes-1))
-        #     return self.node_IDs_to_labels[memory] if memory > 0 else "{}"
-
-        #self.state_ID_to_memory_label : Callable[[int, Optional[int]], str] = state_ID_to_memory_label
-
-        self._load_from_tree( tree        = infomap.get_tree(states = infomap.memoryInput)
+        self._load_from_tree( tree        = infomap.get_tree()
                             , get_node_ID = lambda node: self.node_IDs_to_labels[node.node_id]
-                            , with_state  = infomap.memoryInput
                             )
     
-    def _load_from_tree(self, tree, get_node_ID: Callable[[int], str], with_state: bool) -> None:
+    def _load_from_tree( self
+                       , tree
+                       , get_node_ID: Callable[[int], str]
+                       ) -> None:
         """
         Do the actual reading of the partition.
 
@@ -402,9 +392,6 @@ class PartitionFromInfomap(Partition):
         
         get_node_ID
             A function that takes and InfoNode and returns a node ID.
-
-        with_state: bool
-            Whether the partition is for a state network.
         """
         for node in tree:
             self.modules[node.path]["flow"]  = node.data.flow
@@ -414,38 +401,4 @@ class PartitionFromInfomap(Partition):
             if node.is_leaf:
                 node_ID = get_node_ID(node)
                 self.modules[node.path]["nodes"].add(node_ID)
-
-                if with_state:
-                    #self.paths[node_ID][self.state_ID_to_memory_label(state_ID = node.state_id)] = node.path
-                    self.paths[node_ID][self.state_ID_to_memory_label[node.state_id]] = node.path
-                else:
-                    self.paths[node_ID] = node.path
-        
-        # ToDo: should we do this here or in pathcost in get_address?
-        # in case we're using state files without a prior, it can be that some
-        # physical nodes don't have an epsilon-state. Then we have to make sure,
-        # for the next element prediction, that the
-        if with_state:
-            for node_ID in list(self.paths.keys()):
-                if len(self.paths[node_ID]) == 1:
-                    self.paths[node_ID] = { "{}" : address for (_node_label, address) in self.paths[node_ID].items() }
-
-
-class StatePartitionFromInfomap(Partition):
-    """
-    A class for reading partitions from Infomap instances using state nodes.
-    """
-    def __init__(self, infomap: Infomap) -> None:
-        """
-        Initialise and read the partition from the infomap instance.
-
-        Parameters
-        ----------
-        infomap: Infomap
-            The infomap instance.
-        """
-        super().__init__()
-
-        self._load_from_tree( tree        = infomap.tree
-                            , get_node_ID = lambda node: node.state_id
-                            )
+                self.paths[node_ID] = node.path

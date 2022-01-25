@@ -18,6 +18,15 @@ class PathCost():
         Initialise.
         """
 
+    def from_treefile( self
+                     , filename : str
+                     ) -> PathCost:
+        partition      : PartitionFromTreeFile                                    = PartitionFromTreeFile(treefile = filename)
+        self.modules   : Dict[Tuple[int, ...], Dict[str, Union[Set[int], float]]] = partition.get_modules()
+        self.addresses : Dict[str, Tuple[int, ...]]                               = partition.get_paths()
+        self._build_codebooks()
+        return self
+
     def from_infomap(self, infomap: Infomap, netfile : Maybe[str] = None) -> PathCost:
         """
         Construct codebooks from the supplied infomap instance.
@@ -32,7 +41,7 @@ class PathCost():
         """
         partition      : PartitionFromInfomap                                     = PartitionFromInfomap(infomap)
         self.modules   : Dict[Tuple[int, ...], Dict[str, Union[Set[int], float]]] = partition.get_modules()
-        self.addresses : DefaultDict[str, Dict[str, Tuple[int, ...]]]             = partition.get_paths()
+        self.addresses : Dict[str, Tuple[int, ...]]                               = partition.get_paths()
         self._build_codebooks()
         return self
 
@@ -88,8 +97,6 @@ class PathCost():
         self.infomap.read_file(netfile)
         self.infomap.run()
 
-        self.memory : bool = self.infomap.memoryInput
-
         # extract the partition from infomap
         partition      = PartitionFromInfomap(self.infomap, netfile)
         self.modules   = partition.get_modules()
@@ -116,7 +123,7 @@ class PathCost():
         self.cb.calculate_normalisers()
         self.cb.calculate_costs()
 
-    def get_path_cost_directed(self, u: int, v: int) -> float:
+    def get_path_cost_directed(self, u: str, v: str) -> float:
         """
         Calculate the path cost for the directed edge (u,v).
 
@@ -130,7 +137,7 @@ class PathCost():
         """
         return -log2(self.cb.get_walk_rate(self.addresses[u], self.addresses[v]))
 
-    def get_path_cost_undirected(self, u: int, v: int) -> float:
+    def get_path_cost_undirected(self, u: str, v: str) -> float:
         """
         Calculate the path cost for the undirected edge {u,v} as the average
         of the path costs of the directed edges (u,v) and (v,u).
@@ -147,126 +154,79 @@ class PathCost():
                       + log2(self.get_path_cost_directed(v, u))
                       )
 
-    def get_address(self, path: Tuple[str, ...]) -> Tuple[int, ...]:
+    def get_address(self, node : str) -> Tuple[int, ...]:
         """
         """
-        # if we don't use memory, we forget all history and simply
-        # get the address of the last node in the path
-        if not self.memory:
-            return self.addresses[path[-1]]
-
-        # but if there is memory, we have to select the address in
-        # the correct node that respects the given path
-        else:
-            # if the path is empty, we start at the root of the partition
-            if len(path) == 0:
-                return ()
-
-            # if the path only contains one node, we start at the epsilon
-            # node of the respective physical node
-            if len(path) == 1:
-                return (self.addresses[path[0]]["{}"],)
-
-            # if the path contains two nodes, we start at the corresponding
-            # memory node if it has an own address, otherwise we begin at the
-            # epsilon node of the physical node, which has the same address
-            # as all other memory nodes in that physical node that don't have
-            # an own address
-            if path[-2] in self.addresses[path[-1]]:
-                return self.addresses[path[-1]][path[-2]]
-            else:
-                return self.addresses[path[-1]]["{}"]
+        return self.addresses[node]
 
 
-    def predict_next_element(self, path: Tuple[str, ...]) -> str:
+    def predict_interaction_rates( self
+                                 , node: str
+                                 , include_self_links : bool = True
+                                 ) -> Dict[str, float]:
         """
-        Predicts the next element, given a list of labels of those nodes that
-        have interacted.
+        Returns a dictionary with node labels as keys and the interaction rates
+        with other nodes as values.
+        These values are not normalised, that is, they do not necessarily sum to 1.
 
         Parameters
         ----------
-        path: List[str]]
-            A list of labels of those nodes that have interacted.
-
-        Returns
-        -------
-        int
-            The label of the most likely next node.
-        """
-        # ToDo: make a more efficient implementation
-        return self.rank_next_elements(path = path)[0]
-
-
-    def rank_next_elements(self, path: Tuple[str, ...]) -> List[str]:
-        """
-        Returns a list of node IDs, ranked by
-        """
-        if len(path) == 0:
-            raise Exception("Ranking with empty path not implemented.")
-
-        source_address = self.get_address(path)
-
-        costs : List[Tuple[str, float]] = list()
-        for node_label, addresses in self.addresses.items():
-            # do not calculate paths from one node to itself
-            if node_label != path[-1]:
-                if not self.memory:
-                    best_cost = self.cb.get_walk_cost(source = source_address, target = addresses)
-                else:
-                    best_cost = min([ self.cb.get_walk_cost(source = source_address, target = target_address)
-                                          for (_memory, target_address) in addresses.items()
-                                    ])
-                costs.append((node_label, best_cost))
-
-        ranking, _costs = zip(*sorted(costs, key = lambda pair: pair[1]))
-
-        return ranking
-
-
-    def predict_next_element_probabilities( self
-                                          , path: Tuple[str, ...]
-                                          , include_self_links : bool = True
-                                          ) -> Dict[str, float]:
-        """
-        Returns a dictionary with node labels as keys and the probabilities that
-        the respective node is the next node as values.
-
-        Parameters
-        ----------
-        path: Tuple[str, ...]
-            The path to the start node.
+        node: str
+            The node for which we want to predict interaction rates.
 
         include_self_links: bool = True
-            Whether to include self-links.
+            Whether to include self-links. To be true to the map equation,
+            self-links should be included, otherwise this means that we would
+            remember from which node we start -- the map equation does not
+            remember this.
 
         Returns
         -------
         Dict[str, float]
-            A dictionary with node labels as keys and the probabilities that
-            the respective node is the next node as values.
+            A dictionary with node labels as keys and the interaction rates
+            with other nodes as values.
         """
-        if len(path) == 0:
-            raise Exception("Predictions with empty path not implemented.")
+        source_address = self.get_address(node)
 
-        source_address = self.get_address(path)
+        rates = { node_label : self.cb.get_walk_rate(source = source_address, target = target_address)
+                      for node_label, target_address in self.addresses.items()
+                      if include_self_links or target_address != source_address
+                }
 
-        if not self.memory:
-            rates = { node_label : self.cb.get_walk_rate(source = source_address, target = target_address)
-                          for node_label, target_address in self.addresses.items()
-                          if include_self_links or target_address != source_address
-                    }
-
-        else:
-            rates = { node_label : sum([ self.cb.get_walk_rate(source = source_address, target = target_address)
-                                             for target_address in addresses.values()
-                                       ])
-                          for node_label, addresses in self.addresses.items()
-                          if include_self_links or not source_address in addresses
-                    }
-
-        s = sum(rates.values())
-        rates = { k : v /s for (k,v) in rates.items() }
         return rates
+
+
+    def predict_interaction_probabilities( self
+                                         , node               : str
+                                         , include_self_links : bool = True
+                                         ):
+        """
+        Returns a dictionary with node labels as keys and the interaction
+        probabilities with other nodes as values.
+
+        Parameters
+        ----------
+        node: str
+            The node for which we want to predict interaction probabilities.
+
+        include_self_links: bool = True
+            Whether to include self-links. To be true to the map equation,
+            self-links should be included, otherwise this means that we would
+            remember from which node we start -- the map equation does not
+            remember this.
+
+        Returns
+        -------
+        Dict[str, float]
+            A dictionary with node labels as keys and the interaction
+            probabilities with other nodes as values.
+        """
+        rates = self.predict_interaction_rates( node = node
+                                              , include_self_links = include_self_links
+                                              )
+        s = sum(rates.values())
+        return { node : rate / s for (node, rate) in rates.items() }
+
 
     def generate_network( self
                         , num_links : int

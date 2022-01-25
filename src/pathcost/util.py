@@ -1,6 +1,6 @@
-from typing import Any, List, Optional
+from typing import Any, Iterator, List, Optional
 
-def inits(l: List[Any]) -> List[List[Any]]:
+def inits(l: List[Any]) -> Iterator[List[Any]]:
     """
     Generate the prefixes of a list, excluding the empty and full prefix!
 
@@ -14,7 +14,7 @@ def inits(l: List[Any]) -> List[List[Any]]:
         yield l[:init]
 
 
-def suffixes(l: List[Any]) -> List[List[Any]]:
+def suffixes(l: List[Any]) -> Iterator[List[Any]]:
     """
     Generates the suffixes of a list, including the empty and full suffix!
 

@@ -167,10 +167,11 @@ class CodeBook:
             The rate of descending along the given path.
         """
         if len(path) == 1:
-            return self.code_book[path[0]].enter / self.normaliser
+            return (self.code_book[path[0]].enter / self.normaliser) if self.normaliser > 0.0 else 0.0
 
-        return self.code_book[path[0]].enter / self.normaliser \
-             * self.code_book[path[0]].get_path_rate_forward(path[1:])
+        return ( self.code_book[path[0]].enter / self.normaliser
+               * self.code_book[path[0]].get_path_rate_forward(path[1:])
+               ) if self.normaliser > 0.0 else 0.0
 
 
     def get_path_rate_reverse( self
@@ -190,8 +191,9 @@ class CodeBook:
         float
             The rate of ascending along the given path.
         """
-        if len(path) == 0:
+        if len(path) == 1:
             return 1.0
 
-        return self.code_book[path[0]].exit / self.code_book[path[0]].normaliser \
-             * self.code_book[path[0]].get_path_rate_reverse(path[1:])
+        return ( self.code_book[path[0]].exit / self.code_book[path[0]].normaliser
+               * self.code_book[path[0]].get_path_rate_reverse(path[1:])
+               ) if self.code_book[path[0]].normaliser > 0.0 else 0.0
