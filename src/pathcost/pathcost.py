@@ -3,7 +3,7 @@ from __future__ import annotations
 from infomap      import Infomap
 from numpy        import log2
 from numpy.random import choice
-from typing       import List, Optional as Maybe, Tuple
+from typing       import Optional as Maybe, Tuple
 
 from .codebook    import CodeBook
 from .io.reader   import *
@@ -27,7 +27,7 @@ class PathCost():
         self._build_codebooks()
         return self
 
-    def from_infomap(self, infomap: Infomap, netfile : Maybe[str] = None) -> PathCost:
+    def from_infomap(self, infomap: Infomap, mapping : Maybe[Dict[int, str]] = None, netfile : Maybe[str] = None) -> PathCost:
         """
         Construct codebooks from the supplied infomap instance.
 
@@ -35,11 +35,14 @@ class PathCost():
         ----------
         infomap: Infomap
             The infomap instance.
+        
+        mapping: Maybe[Dict[int, str]]
+            A mapping from infomap-internal node IDs to node labels.
 
         netfile: Maybe[str] = none
             The file that contains the network (needed for of memory networks).
         """
-        partition      : PartitionFromInfomap                                     = PartitionFromInfomap(infomap)
+        partition      : PartitionFromInfomap                                     = PartitionFromInfomap(infomap, mapping = mapping)
         self.modules   : Dict[Tuple[int, ...], Dict[str, Union[Set[int], float]]] = partition.get_modules()
         self.addresses : Dict[str, Tuple[int, ...]]                               = partition.get_paths()
         self._build_codebooks()
@@ -98,7 +101,7 @@ class PathCost():
         self.infomap.run()
 
         # extract the partition from infomap
-        partition      = PartitionFromInfomap(self.infomap, netfile)
+        partition      = PartitionFromInfomap(self.infomap, mapping = None, netfile = netfile)
         self.modules   = partition.get_modules()
         self.addresses = partition.get_paths()
         self._build_codebooks()
@@ -115,7 +118,8 @@ class PathCost():
         # create the codebook and insert all paths
         self.cb : CodeBook = CodeBook()
         for m in self.modules:
-            self.cb.insert_path( path  = m
+            self.cb.insert_path( node  = list(self.modules[m]["nodes"])[0] if len(self.modules[m]["nodes"]) == 1 else None
+                               , path  = m
                                , flow  = self.modules[m]["flow"]
                                , enter = self.modules[m]["enter"]
                                , exit  = self.modules[m]["exit"]
@@ -135,7 +139,8 @@ class PathCost():
         v: int
             The target node.
         """
-        return -log2(self.cb.get_walk_rate(self.addresses[u], self.addresses[v]))
+        walk_rate = self.cb.get_walk_rate(self.addresses[u], self.addresses[v])
+        return -log2(walk_rate) if walk_rate > 0 else numpy.inf
 
     def get_path_cost_undirected(self, u: str, v: str) -> float:
         """
@@ -226,6 +231,12 @@ class PathCost():
                                               )
         s = sum(rates.values())
         return { node : rate / s for (node, rate) in rates.items() }
+
+
+    def make_recommendations( self
+                            , node : str
+                            ):
+        yield from self.cb.recommend(self.addresses[node])
 
 
     def generate_network( self
