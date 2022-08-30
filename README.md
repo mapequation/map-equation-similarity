@@ -35,6 +35,8 @@ You can define your network in a file, for example `example.net`, like so
 
 and load it with MapSim when creating an instance.
 ```
+from mapsim import MapSim
+
 ms = MapSim()
 ms.run_infomap( netfile                   = "example.net"
               , directed                  = False
