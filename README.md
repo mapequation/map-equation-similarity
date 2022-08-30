@@ -7,7 +7,7 @@ To get started, create a virtual environment `virtualenv map-equation-similarity
 
 ## Usage
 MapSim uses Infomap to detect communities.
-You can define your network in a file, like so
+You can define your network in a file, for example `example.net`, like so
 ```
 # Coding example
 *Vertices 9
@@ -36,13 +36,13 @@ You can define your network in a file, like so
 and load it with MapSim when creating an instance.
 ```
 ms = MapSim()
-ms.run_infomap( netfile                   = "examples/coding-example.net"
+ms.run_infomap( netfile                   = "example.net"
               , directed                  = False
               , teleportation_probability = 0
               )
 ```
 
-Then, you can use MapSim to calculate similarities between nodes:
+Then, you can use MapSim to calculate similarities between nodes (MapSim uses strings as node labels as defined in the input file):
 ```
-ms.get_path_cost_directed(1,2)
+ms.get_path_cost_directed("1", "2")
 ```
