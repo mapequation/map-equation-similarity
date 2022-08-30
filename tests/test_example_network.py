@@ -1,14 +1,14 @@
-from src.pathcost import PathCost
-from pytest       import approx
+from src.mapsim import MapSim
+from pytest     import approx
 
 def test_example_network():
-    pc = PathCost()
-    pc.run_infomap( netfile                   = "examples/coding-example.net"
+    ms = MapSim()
+    ms.run_infomap( netfile                   = "examples/coding-example.net"
                   , directed                  = False
                   , teleportation_probability = 0
                   )
 
-    probs = pc.predict_interaction_probabilities("1")
+    probs = ms.predict_interaction_probabilities("1")
 
     expect = { "1" : 2/12
              , "2" : 1/12

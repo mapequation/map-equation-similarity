@@ -2,7 +2,6 @@ from __future__   import annotations
 from abc          import ABCMeta, abstractmethod
 from collections  import defaultdict
 from infomap      import Infomap
-from math         import trunc
 from typing       import Callable, DefaultDict, Dict, List, Set, Optional as Maybe, Tuple, Union
 
 from ..util import *

@@ -8,9 +8,9 @@ from typing       import Optional as Maybe, Tuple
 from .codebook    import CodeBook
 from .io.reader   import *
 
-class PathCost():
+class MapSim():
     """
-    PathCost derives codebooks from the modular structure of a network and uses
+    MapSim derives codebooks from the modular structure of a network and uses
     them to caluclate the cost in bits to
     """
     def __init__(self) -> None:
@@ -20,14 +20,14 @@ class PathCost():
 
     def from_treefile( self
                      , filename : str
-                     ) -> PathCost:
+                     ) -> MapSim:
         partition      : PartitionFromTreeFile                                    = PartitionFromTreeFile(treefile = filename)
         self.modules   : Dict[Tuple[int, ...], Dict[str, Union[Set[int], float]]] = partition.get_modules()
         self.addresses : Dict[str, Tuple[int, ...]]                               = partition.get_paths()
         self._build_codebooks()
         return self
 
-    def from_infomap(self, infomap: Infomap, mapping : Maybe[Dict[int, str]] = None, netfile : Maybe[str] = None) -> PathCost:
+    def from_infomap(self, infomap: Infomap, mapping : Maybe[Dict[int, str]] = None, netfile : Maybe[str] = None) -> MapSim:
         """
         Construct codebooks from the supplied infomap instance.
 
@@ -56,7 +56,7 @@ class PathCost():
                    , seed                      : int  = 42
                    , one_level                 : bool = False
                    , rawdir                    : bool = False
-                   ) -> PathCost:
+                   ) -> MapSim:
         """
         Run infomap on the supplied network file and use the partition it finds.
 

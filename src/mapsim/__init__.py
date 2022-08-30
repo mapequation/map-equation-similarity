@@ -1,7 +1,7 @@
 from .         import io
 from .codebook import CodeBook
-from .pathcost import PathCost
+from .mapsim   import MapSim
 
-__all__ = ["io", "CodeBook", "PathCost"]
+__all__ = ["io", "CodeBook", "MapSim"]
 
 __version__ = "0.5.0"

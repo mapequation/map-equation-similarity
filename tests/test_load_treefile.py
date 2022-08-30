@@ -1,7 +1,6 @@
-from infomap                import Infomap
-from src.pathcost           import PathCost
-from src.pathcost.io.reader import NetworkFromNetFile
-from pytest                 import approx
+from infomap              import Infomap
+from src.mapsim           import MapSim
+from src.mapsim.io.reader import NetworkFromNetFile
 
 def test_read_treefile():
     im = Infomap( silent    = True
@@ -19,7 +18,7 @@ def test_read_treefile():
     im.run()
     im.write_tree("out/tmp.tree")
 
-    #pc = PathCost().from_treefile("out/tmp.tree")
+    #pc = MapSim().from_treefile("out/tmp.tree")
 
     #assert len(pc.addresses) == 9
     assert(True)
