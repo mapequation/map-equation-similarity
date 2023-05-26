@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from infomap      import Infomap
-from numpy        import log2
+from networkx     import Graph
+from numpy        import log2, inf as infinity
 from numpy.random import choice
 from typing       import Optional as Maybe, Tuple
 
@@ -140,7 +141,7 @@ class MapSim():
             The target node.
         """
         walk_rate = self.cb.get_walk_rate(self.addresses[u], self.addresses[v])
-        return -log2(walk_rate) if walk_rate > 0 else numpy.inf
+        return -log2(walk_rate) if walk_rate > 0 else infinity
 
     def get_path_cost_undirected(self, u: str, v: str) -> float:
         """
@@ -264,3 +265,10 @@ class MapSim():
             res[link] += 1
 
         return res
+    
+    def divergence(self, other : MapSim, G : Graph):
+        return sum([self.cb.divergence( Q       = other.cb
+                                      , source  = (self.get_address(u), other.get_address(u))
+                                      , targets = [(self.get_address(v), other.get_address(v)) for v in G.neighbors(u)]
+                                      ) for u in G.nodes
+                   ])

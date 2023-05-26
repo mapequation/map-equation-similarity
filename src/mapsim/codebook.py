@@ -57,6 +57,22 @@ class CodeBook:
         return indent * " " + f"flow={self.flow:.2f}, enter={self.enter:.2f}, exit={self.exit:.2f}, norm={self.normaliser:.2f}, enter_cost={self.enter_cost:.2f}, exit_cost={self.exit_cost:.2f} {subs}"
 
 
+    def get_nodes(self) -> List[str]:
+        """
+        Traverses the codebook and collects the nodes.
+        """
+        if self.node is not None:
+            return [self.node]
+        
+        else:
+            res = []
+
+            for cb in self.code_book.values():
+                res += cb.get_nodes()
+            
+            return res
+
+
     def insert_path(self, node: str, path: Tuple[int, ...], flow: float, enter: float, exit: float) -> None:
         """
         Inserts a path with corresponding flow data. A path can point to a module
@@ -253,3 +269,19 @@ class CodeBook:
                 break
 
         return exit_cost, targets
+    
+    def divergence(self : CodeBook, Q : CodeBook, source: Tuple[Tuple[int, ...]], targets: List[Tuple[Tuple[int, ...]]]) -> float:
+        P    = self
+        D_KL = 0.0
+
+        sourceP, sourceQ = source
+
+        for target in targets:
+            targetP, targetQ = target
+            
+            rP = P.get_walk_rate(source = sourceP, target = targetP)
+            rQ = Q.get_walk_rate(source = sourceQ, target = targetQ)
+
+            D_KL += rP * log2(rP / rQ)
+
+        return P.get_flow(path = sourceP) * D_KL
