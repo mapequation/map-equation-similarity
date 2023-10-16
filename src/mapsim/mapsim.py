@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from infomap      import Infomap
-from networkx     import Graph
-from numpy        import log2, inf as infinity
-from numpy.random import choice
-from typing       import Optional as Maybe, Tuple
+from infomap                         import Infomap
+from networkx                        import Graph
+from networkx.linalg.laplacianmatrix import _transition_matrix
+from numpy                           import log2, inf as infinity
+from numpy.random                    import choice
+from typing                          import Optional as Maybe, Tuple
 
-from .codebook    import CodeBook
-from .io.reader   import *
+from .codebook                       import CodeBook
+from .io.reader                      import *
 
 class MapSim():
     """
@@ -47,6 +48,10 @@ class MapSim():
         self.modules   : Dict[Tuple[int, ...], Dict[str, Union[Set[int], float]]] = partition.get_modules()
         self.addresses : Dict[str, Tuple[int, ...]]                               = partition.get_paths()
         self._build_codebooks()
+
+        # for making predictions later
+        self.node_IDs_to_labels : Dict[int, str] = infomap.names
+
         return self
 
     def run_infomap( self
@@ -127,6 +132,9 @@ class MapSim():
                                )
         self.cb.calculate_normalisers()
         self.cb.calculate_costs()
+
+    def mapsim(self, u: str, v : str) -> float:
+        return self.cb.get_walk_rate(self.addresses[u], self.addresses[v])
 
     def get_path_cost_directed(self, u: str, v: str) -> float:
         """
@@ -254,7 +262,7 @@ class MapSim():
         for _ in range(num_links):
             start_node = choice(nodes, size = None, p = flows)
 
-            next_elem_probabilities = self.predict_next_element_probabilities([start_node], include_self_links = include_self_links)
+            next_elem_probabilities = self.predict_interaction_probabilities(start_node, include_self_links = include_self_links)
             next_nodes, next_probabilities = zip(*next_elem_probabilities.items())
 
             target_node = choice(next_nodes, size = None, p = next_probabilities)
@@ -266,9 +274,100 @@ class MapSim():
 
         return res
     
-    def divergence(self, other : MapSim, G : Graph):
-        return sum([self.cb.divergence( Q       = other.cb
-                                      , source  = (self.get_address(u), other.get_address(u))
-                                      , targets = [(self.get_address(v), other.get_address(v)) for v in G.neighbors(u)]
-                                      ) for u in G.nodes
-                   ])
+    def L(self, G : Maybe[Graph] = None, verbose : bool = False) -> float:
+        """
+        Calculate the codelength.
+
+        Parameters
+        ----------
+        G: Maybe[Graph]
+            The graph for calculating transition rates.
+            If no graph is given, transition rates are estimated based on
+            the modular compression of flows.
+        
+        verbose : bool
+            Print info while calculating.
+        
+        Returns
+        -------
+        float
+            The codelength.
+        """
+        M   = self
+        res = 0
+
+        if G is not None:
+            T = _transition_matrix(G.to_directed()).toarray()
+            for ix_u, u in enumerate(G.nodes):
+                p_u = M.cb.get_flow(M.addresses[u])
+                for ix_v, v in enumerate(G.nodes):
+                    if v in G.neighbors(u):
+                        c    = - p_u * T[ix_u,ix_v] * log2(M.mapsim(u, v))
+                        res += c
+
+                        if verbose:
+                            print(f"{u}->{v} - {p_u:.2f} * {T[ix_u,ix_v]:.2f} * log2({M.mapsim(u, v):.2f}) = {c:.2f}")
+        
+        else:
+            for u, addr_u in M.addresses.items():
+                p_u = M.cb.get_flow(addr_u)
+                t_u = M.predict_interaction_rates(node = u, include_self_links = False)
+                s   = sum(t_u.values())
+
+                for v, t_uv in t_u.items():
+                    c    = - p_u * (t_uv / s) * log2(t_uv)
+                    res += c
+
+                    if verbose:
+                        print(f"{u}->{v} - {p_u:.2f} * {t_uv / s:.2f} * log2({t_uv:.2f}) = {c:.2f}")
+
+        return res
+
+    def L_per_node(self, G : Graph) -> Dict[str, float]:
+        M   = self
+        res = dict()
+
+        T = _transition_matrix(G.to_directed()).toarray()
+        for ix_u, u in enumerate(G.nodes):
+            res[u] = 0
+            p_u = M.cb.get_flow(M.addresses[u])
+            for ix_v, v in enumerate(G.nodes):
+                if v in G.neighbors(u):
+                    res[u] += - p_u * T[ix_u,ix_v] * log2(M.mapsim(u, v))
+        
+        return res
+
+    def D(self, other : MapSim, G : Maybe[Graph] = None, verbose : bool = False) -> float:
+        Ma = self
+        Mb = other
+        
+        res = 0
+
+        if G is not None:
+            T = _transition_matrix(G.to_directed()).toarray()
+            for ix_u, u in enumerate(G.nodes):
+                p_u = Ma.cb.get_flow(self.addresses[u])
+                for ix_v, v in enumerate(G.nodes):
+                    if v in G.neighbors(u):
+                        c    = p_u * T[ix_u,ix_v] * log2(Ma.mapsim(u, v) / Mb.mapsim(u, v))
+                        res += c
+
+                        if verbose:
+                            print(f"{u}->{v} {p_u:.2f} * {T[ix_u,ix_v]:.2f} * log2({Ma.mapsim(u, v):.2f} / {Mb.mapsim(u, v):.2f}) = {c:.2f}")
+        else:
+            for u, addr_u in Ma.addresses.items():
+                p_u = Ma.cb.get_flow(addr_u)
+
+                t_u_a = Ma.predict_interaction_rates(u, include_self_links = False)
+                t_u_b = Mb.predict_interaction_rates(u, include_self_links = False)
+
+                s_a = sum(t_u_a.values())
+
+                for v in t_u_a.keys():
+                    c    = p_u * (t_u_a[v] / s_a) * log2(t_u_a[v] / t_u_b[v])
+                    res += c
+
+                    if verbose:
+                        print(f"{u}->{v} {p_u:.2f} * {t_u_a[v] / s_a:.2f} * log2({t_u_a[v]:.2f} / {t_u_b[v]:.2f}) = {c:.2f}")
+
+        return res

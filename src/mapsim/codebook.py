@@ -276,12 +276,21 @@ class CodeBook:
 
         sourceP, sourceQ = source
 
+        rPs = []
+        rQs = []
+
         for target in targets:
             targetP, targetQ = target
             
-            rP = P.get_walk_rate(source = sourceP, target = targetP)
-            rQ = Q.get_walk_rate(source = sourceQ, target = targetQ)
+            rPs.append(P.get_walk_rate(source = sourceP, target = targetP))
+            rQs.append(Q.get_walk_rate(source = sourceQ, target = targetQ))
 
-            D_KL += rP * log2(rP / rQ)
+        rPs = [rP/sum(rPs) for rP in rPs]
+        rQs = [rQ/sum(rQs) for rQ in rQs]
+
+        #print(f"Ps = {rPs}, Qs = {rQs}")
+        
+        for rP, rQ in zip(rPs, rQs):
+            D_KL += (rP/sum(rPs)) * log2((rP/sum(rPs)) / (rQ/sum(rQs)))
 
         return P.get_flow(path = sourceP) * D_KL
