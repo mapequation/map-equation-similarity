@@ -5,7 +5,7 @@ from networkx                        import Graph
 from networkx.linalg.laplacianmatrix import _transition_matrix
 from numpy                           import log2, inf as infinity
 from numpy.random                    import choice
-from typing                          import Optional as Maybe, Tuple
+from typing                          import Dict, Optional as Maybe, Set, Tuple
 
 from .codebook                       import CodeBook
 from .io.reader                      import *
@@ -371,3 +371,56 @@ class MapSim():
                         print(f"{u}->{v} {p_u:.2f} * {t_u_a[v] / s_a:.2f} * log2({t_u_a[v]:.2f} / {t_u_b[v]:.2f}) = {c:.2f}")
 
         return res
+
+
+class MapSimSampler(MapSim):
+    def __init__(self, G) -> None:
+        super().__init__()
+        
+        if G.is_directed():
+            self.population = lambda u: G.out_degree(u)
+        else:
+            self.population = lambda u: G.degree(u)
+    
+    def prepare_sampling(self, beta : float) -> None:
+        self.beta = beta
+        self.module_transition_rates = dict()
+
+        # calculate the transition rates for modules
+        modules = [path for path, m in self.modules.items() if len(m["nodes"]) == 0 and len(path) > 0]
+
+        for m1 in modules:
+            for m2 in modules:
+                if m1 != m2:
+                    # we append 0 to the starting address because we need to consider exiting that module
+                    self.module_transition_rates[(m1, m2)] = self.cb.get_walk_rate((m1) + (0,), m2)
+        
+        # calculate the softmax normalisers
+        self.softmax_normalisers = dict()
+        the_nodes                = set(self.cb.get_nodes())
+        modules                  = [path for path, m in self.modules.items() if len(m["nodes"]) == 0 and len(path) > 0]
+        for path in modules:
+            self.softmax_normalisers[path] = 0
+
+            module_nodes = set(self.cb.get_module(path).get_nodes())
+            for v in the_nodes:
+                path_v = self.addresses[v]
+                if v in module_nodes:
+                    self.softmax_normalisers[path] += 2**(self.beta * log2(self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])))
+                else:
+                    self.softmax_normalisers[path] += 2**(self.beta * log2(self.module_transition_rates[(path, path_v[:-1])] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])))
+
+    def from_infomap(self, infomap: Infomap, mapping: Dict[int, str] | None = None, netfile: str | None = None) -> MapSim:
+        super().from_infomap(infomap, mapping, netfile)
+
+        return self
+
+    def get_probability(self, u, v) -> float:
+        path_u     = self.addresses[u]
+        path_v     = self.addresses[v]
+        if path_u[:-1] == path_v[:-1]:
+            d_uv = log2(self.cb.get_walk_rate(path_u, path_v))
+        else:
+            d_uv = log2(self.module_transition_rates[(path_u[:-1], path_v[:-1])] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:]))
+        normaliser = self.softmax_normalisers[path_u[:-1]] - 2**(self.beta * log2(self.cb.get_module(path_u[:-1]).get_path_rate_forward(path_u[-1:])))
+        return self.population(u) * 2**(self.beta * d_uv) / normaliser
