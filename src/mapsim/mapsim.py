@@ -265,10 +265,3 @@ class MapSim():
             res[link] += 1
 
         return res
-    
-    def divergence(self, other : MapSim, G : Graph):
-        return sum([self.cb.divergence( Q       = other.cb
-                                      , source  = (self.get_address(u), other.get_address(u))
-                                      , targets = [(self.get_address(v), other.get_address(v)) for v in G.neighbors(u)]
-                                      ) for u in G.nodes
-                   ])
