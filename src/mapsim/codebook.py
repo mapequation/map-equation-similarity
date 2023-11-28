@@ -11,6 +11,30 @@ class PrioritisedItem:
     item: Any=field(compare=False)
 
 
+def assignCodewords(t, prefix = "") -> List:
+    if type(t) == tuple:
+        l,r = t
+        return assignCodewords(l, prefix = prefix + "0") \
+             + assignCodewords(r, prefix = prefix + "1")
+    else:
+        return [(t, prefix)]
+        
+
+def mkHuffmanCode(X : List, P : List[float]):
+    q = []
+
+    for (x, p) in zip(X, P):
+        heappush(q, PrioritisedItem(cost = p, item = x))
+    
+    while len(q) > 1:
+        l = heappop(q)
+        r = heappop(q)
+        heappush(q, PrioritisedItem(cost = l.cost + r.cost, item = (l.item, r.item)))
+
+    t = heappop(q).item
+    return dict(assignCodewords(t))
+
+
 class CodeBook:
     """
     A code book to calculate path costs.
@@ -21,6 +45,7 @@ class CodeBook:
         """Creates an empty codebook."""
         self.node       : Maybe[str]          = None
         self.code_book  : Dict[int, CodeBook] = dict()
+        self.code_words : Dict[int, str]      = None
         self.flow       : float               = 0.0
         self.enter      : float               = 0.0
         self.exit       : float               = 0.0
@@ -39,7 +64,7 @@ class CodeBook:
         return f"<CodeBook\n{self._serialise(indent = 0)}\n>"
 
 
-    def _serialise(self, indent: int) -> str:
+    def _serialise(self, indent: int, codeword = "") -> str:
         """
         Serialises the codebook in a somewhat readable format.
 
@@ -53,8 +78,32 @@ class CodeBook:
         str
             The serialised codebook
         """
-        subs = "".join([f"\n{cb._serialise(indent + 4)}" for cb in self.code_book.values()])
-        return indent * " " + f"flow={self.flow:.2f}, enter={self.enter:.2f}, exit={self.exit:.2f}, norm={self.normaliser:.2f}, enter_cost={self.enter_cost:.2f}, exit_cost={self.exit_cost:.2f} {subs}"
+        subs  = "".join([f"\n{cb._serialise(indent = indent + 4, codeword = self.code_words[k])}" for k,cb in self.code_book.items()])
+        if self.node:
+            extra = f"node={self.node},"
+        elif self.exit > 0:
+            extra = f"exit={self.code_words['exit']},"
+        else:
+            extra = ""
+
+        return indent * " " + f"flow={self.flow:.2f}, enter={self.enter:.2f}, exit={self.exit:.2f}, norm={self.normaliser:.2f}, enter_cost={self.enter_cost:.2f}, exit_cost={self.exit_cost:.2f}, codeword={codeword}, {extra} {subs}"
+
+
+    def mk_codewords(self) -> None:
+        self.code_words = dict()
+
+        X = list(self.code_book.keys())
+        P = [self.code_book[x].flow for x in X]
+
+        if self.exit > 0:
+            X += ["exit"]
+            P += [self.exit]
+
+        self.code_words = mkHuffmanCode(X = X, P = P)
+
+        for cb in self.code_book.values():
+            if len(cb.code_book) > 1:
+                cb.mk_codewords()
 
 
     def get_nodes(self) -> List[str]:
