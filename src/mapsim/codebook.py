@@ -79,14 +79,15 @@ class CodeBook:
             The serialised codebook
         """
         subs  = "".join([f"\n{cb._serialise(indent = indent + 4, codeword = self.code_words[k])}" for k,cb in self.code_book.items()])
+        
         if self.node:
-            extra = f"node={self.node},"
-        elif self.exit > 0:
-            extra = f"exit={self.code_words['exit']},"
+            return indent * " " + f"node={self.node}, flow={self.flow:.2f}, visit_cost={self.enter_cost:.2f}, codeword={codeword}, {subs}"
         else:
             extra = ""
+            if self.exit > 0:
+                extra = f"exit={self.code_words['exit']},"
 
-        return indent * " " + f"flow={self.flow:.2f}, enter={self.enter:.2f}, exit={self.exit:.2f}, norm={self.normaliser:.2f}, enter_cost={self.enter_cost:.2f}, exit_cost={self.exit_cost:.2f}, codeword={codeword}, {extra} {subs}"
+            return indent * " " + f"flow={self.flow:.2f}, enter={self.enter:.2f}, exit={self.exit:.2f}, norm={self.normaliser:.2f}, enter_cost={self.enter_cost:.2f}, exit_cost={self.exit_cost:.2f}, codeword={codeword}, {extra} {subs}"
 
 
     def mk_codewords(self) -> None:
@@ -99,11 +100,13 @@ class CodeBook:
             X += ["exit"]
             P += [self.exit]
 
-        self.code_words = mkHuffmanCode(X = X, P = P)
+        if len(X) > 1:
+            self.code_words = mkHuffmanCode(X = X, P = P)
+        else:
+            self.code_words = dict()
 
         for cb in self.code_book.values():
-            if len(cb.code_book) > 1:
-                cb.mk_codewords()
+            cb.mk_codewords()
 
 
     def get_nodes(self) -> List[str]:
