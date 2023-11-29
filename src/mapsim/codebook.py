@@ -80,7 +80,7 @@ class CodeBook:
         """
         subs  = "".join([f"\n{cb._serialise(indent = indent + 4, codeword = self.code_words[k])}" for k,cb in self.code_book.items()])
         
-        if self.node:
+        if self.node is not None:
             return indent * " " + f"node={self.node}, flow={self.flow:.2f}, visit_cost={self.enter_cost:.2f}, codeword={codeword}, {subs}"
         else:
             extra = ""
