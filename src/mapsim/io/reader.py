@@ -355,8 +355,6 @@ class PartitionFromInfomap(Partition):
     """
     def __init__( self
                 , infomap: Infomap
-                , mapping: Maybe[Dict[int, str]] = None
-                , netfile: Maybe[str]            = None
                 ) -> None:
         """
         Initialise and read the partition from the infomap instance.
@@ -371,11 +369,16 @@ class PartitionFromInfomap(Partition):
         """
         super().__init__()
 
-        self.paths                               = dict()
-        self.node_IDs_to_labels : Dict[int, str] = mapping if mapping is not None else infomap.names
+        self.paths = dict()
+        
+        if len(infomap.names) > 0:
+            self.node_IDs_to_labels : Dict[int, str] = infomap.names
+            get_node_ID                              = lambda node: self.node_IDs_to_labels[node.node_id]
+        else:
+            get_node_ID                              = lambda node: node.node_id
 
         self._load_from_tree( tree        = infomap.get_tree()
-                            , get_node_ID = lambda node: self.node_IDs_to_labels[node.node_id]
+                            , get_node_ID = get_node_ID
                             )
     
     def _load_from_tree( self

@@ -29,7 +29,7 @@ class MapSim():
         self._build_codebooks()
         return self
 
-    def from_infomap(self, infomap: Infomap, mapping : Maybe[Dict[int, str]] = None, netfile : Maybe[str] = None) -> MapSim:
+    def from_infomap(self, infomap: Infomap) -> MapSim:
         """
         Construct codebooks from the supplied infomap instance.
 
@@ -37,14 +37,8 @@ class MapSim():
         ----------
         infomap: Infomap
             The infomap instance.
-        
-        mapping: Maybe[Dict[int, str]]
-            A mapping from infomap-internal node IDs to node labels.
-
-        netfile: Maybe[str] = none
-            The file that contains the network (needed for of memory networks).
         """
-        partition      : PartitionFromInfomap                                     = PartitionFromInfomap(infomap, mapping = mapping)
+        partition      : PartitionFromInfomap                                     = PartitionFromInfomap(infomap)
         self.modules   : Dict[Tuple[int, ...], Dict[str, Union[Set[int], float]]] = partition.get_modules()
         self.addresses : Dict[str, Tuple[int, ...]]                               = partition.get_paths()
         self._build_codebooks()
@@ -132,6 +126,11 @@ class MapSim():
                                )
         self.cb.calculate_normalisers()
         self.cb.calculate_costs()
+        self.cb.mk_codewords()
+        
+
+    def mapsim(self, u: str, v : str) -> float:
+        return self.cb.get_walk_rate(self.addresses[u], self.addresses[v])
 
     def mapsim(self, u: str, v : str) -> float:
         return self.cb.get_walk_rate(self.addresses[u], self.addresses[v])
