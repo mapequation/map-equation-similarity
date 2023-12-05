@@ -123,6 +123,7 @@ class MapSim():
         self.cb.calculate_costs()
         self.cb.mk_codewords()
 
+
     def get_path_cost_directed(self, u: str, v: str) -> float:
         """
         Calculate the path cost for the directed edge (u,v).

@@ -179,6 +179,25 @@ class CodeBook:
                 res += cb.get_nodes()
             
             return res
+    
+    def get_module(self, path: Tuple[int, ...]) -> CodeBook:
+        """
+        Retrieves the submodule at the given path.
+
+        Parameters
+        ----------
+        path: List[int]
+            The path to the submodule of interest.
+
+        Returns
+        -------
+        CodeBook
+            The codebook at the given path.
+        """
+        if path == ():
+            return self
+
+        return self.code_book[path[0]].get_module(path[1:])
 
 
     def insert_path(self, node: str, path: Tuple[int, ...], flow: float, enter: float, exit: float) -> None:
