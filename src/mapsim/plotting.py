@@ -67,14 +67,27 @@ def plot_hierarchy(mapsim : MapSim, G : nx.Graph) -> None:
 
     plt.scatter([0], [0], marker = "s", c = ["grey"])
 
-    theta = 0
-    for (ix, address) in enumerate(sorted(module_nodes)):
+    angle_offsets = {():0}
+    for address in sorted(module_nodes, key = lambda addr: (len(addr), addr)):
+        # get angle offset for *this* node
+        theta = angle_offsets[address[:-1]]
+
+        # and remember the offset for potential children
+        angle_offsets[address] = theta
+
         theta += module_node_to_flow[address] * np.pi
-        p = child_poincare(0, 0, r = 1, theta = theta)
+        r = sum([1/2**i for i in range(len(address))])
+        p = child_poincare(0, 0, r = r, theta = theta)
         radial_pos[address] = p
         theta += module_node_to_flow[address] * np.pi
-        plt.plot([0,p[0]], [0,p[1]], c = "grey", alpha = 0.5)
-        plt.scatter([p[0]], [p[1]], marker = "s", c = [palette[ix % len(palette)]])
+
+        # and update the angle offset for siblings
+        angle_offsets[address[:-1]] = theta
+
+        parent = radial_pos[address[:-1]]
+
+        plt.plot([parent[0],p[0]], [parent[1],p[1]], c = "grey", alpha = 0.5)
+        plt.scatter([p[0]], [p[1]], marker = "s", c = [palette[(address[0] - 1) % len(palette)]])
 
     for (u, v) in G.edges:
         source = mapsim.addresses[u]
