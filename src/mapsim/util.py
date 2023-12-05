@@ -79,3 +79,41 @@ def splitQuotationAware(s: str, sep: Optional[str] = " ") -> List[str]:
         i += 1
 
     return res
+
+
+def address_path(source : List[Any], target : List[Any]) -> List[List[Any]]:
+    """
+    Constructs the path in the coding tree from source to target, using the
+    modules addresses as identifiers.
+
+    Parameters
+    ----------
+    source : List[Any]
+        The source's address.
+
+    target : List[Any]
+        The target's address.
+
+    Returns
+    -------
+    List[List[Any]]
+        The path from source to target.
+    """
+
+    # empty source means we just walk to the target
+    if source == []:
+        return [target[:ix] for ix in range(len(target) + 1)]
+    
+    # empty target means we just walk from the source
+    elif target == []:
+        return [source[:ix] for ix in range(len(source),-1,-1)]
+
+    # remove common prefix to find the smallest common super-module
+    elif source[0] == target[0]:
+        return [[source[0]] + address_node for address_node in address_path(source = source[1:], target = target[1:])]
+    
+    # if we have found the smallest common super-module,
+    # concatenate the paths for walking from the source and to the target
+    else:
+        return address_path(source = source, target = []) \
+             + address_path(source = [],     target = target)
