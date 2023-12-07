@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from infomap      import Infomap
 from networkx     import Graph
+from matplotlib.colors import LinearSegmentedColormap
 from numpy        import log2, inf as infinity
 from numpy.random import choice
 from typing       import Optional as Maybe, Tuple
 
 from .codebook    import CodeBook
 from .io.reader   import *
+
+import matplotlib.pyplot as plt
+import seaborn as sb
 
 class MapSim():
     """
@@ -122,6 +126,133 @@ class MapSim():
         self.cb.calculate_normalisers()
         self.cb.calculate_costs()
         self.cb.mk_codewords()
+
+
+    def plot_hierarchy(self, G : Graph, figsize : Tuple[float, float] = (5,5), num_spline_points : int = 10) -> None:
+        """
+        Plot the partition's hierarchical organisation in a circular plot.
+
+        Parameters
+        ----------
+        G : Graph
+            The graph that contains the links.
+        
+        figsize : Tuple[float, float]
+            The size of the figure.
+        
+        num_spline_points : int
+            The number of points to draw smooth splines between nodes.
+        """
+        # node addresses to flow
+        node_to_flow = { address : self.cb.get_flow(address) for address in self.addresses.values() }
+
+        # a reverse mapping from addresses to nodes
+        address_to_node = { v:k for k,v in self.addresses.items()}
+
+        # remember what colours the nodes get
+        address_to_colour = dict()
+        address_to_colour[()] = "grey"
+
+        # the nodes that represent modules, as opposed to actual nodes
+        module_nodes = set()
+
+        for address in self.addresses.values():
+            for init in inits(address):
+                module_nodes.add(init)
+        
+        # the flows for the module nodes
+        module_node_to_flow = dict()
+        for module_node in module_nodes:
+            sub_codebook = self.cb.get_module(module_node)
+            module_node_to_flow[module_node] = sub_codebook.flow
+        
+        # the actual plotting...
+        fig, ax = plt.subplots(1, 1, figsize = figsize)
+
+        palette = sb.color_palette("colorblind")
+
+        # radial positions for all nodes
+        radial_pos = dict()
+        radial_pos[()] = (0,0)
+
+        # calculate node positions on the disc
+        def child_poincare(x,y,r,theta):
+            x_ = x + r * np.cos(theta)
+            y_ = y + r * np.sin(theta)
+
+            return (x_,y_)
+
+        # the nodes' modules
+        modules = dict()
+
+        theta = 0
+        node_colours = []
+        node_flows   = []
+        for (address, flow) in node_to_flow.items():
+            node = address_to_node[address]
+
+            # super-crude way to decide what module the node belongs to
+            modules[node] = address[0]
+            module = address[0]
+
+            theta += flow * np.pi
+            p = child_poincare(0, 0, r = 2, theta = theta)
+            radial_pos[address] = p
+            theta += flow * np.pi
+
+            node_flows.append(flow)
+            node_colours.append(palette[(module-1) % len(palette)])
+            address_to_colour[address] = palette[(module-1) % len(palette)]
+
+        ax.pie( node_flows
+            , radius = 2.1
+            , colors = node_colours
+            , wedgeprops = dict( width = 0.1, edgecolor = "w" )
+            )
+
+        plt.scatter([0], [0], marker = "s", c = ["grey"])
+
+        angle_offsets = {():0}
+        for address in sorted(module_nodes, key = lambda addr: (len(addr), addr)):
+            # get angle offset for *this* node
+            theta = angle_offsets[address[:-1]]
+
+            # and remember the offset for potential children
+            angle_offsets[address] = theta
+
+            theta += module_node_to_flow[address] * np.pi
+            r = sum([1/2**i for i in range(len(address))])
+            p = child_poincare(0, 0, r = r, theta = theta)
+            radial_pos[address] = p
+            theta += module_node_to_flow[address] * np.pi
+
+            # and update the angle offset for siblings
+            angle_offsets[address[:-1]] = theta
+
+            parent = radial_pos[address[:-1]]
+            address_to_colour[address] = palette[(address[0] - 1) % len(palette)]
+
+            plt.plot([parent[0],p[0]], [parent[1],p[1]], c = "grey", alpha = 0.5)
+            plt.scatter([p[0]], [p[1]], marker = "s", c = [palette[(address[0] - 1) % len(palette)]])
+
+        for (u, v) in G.edges:
+            source = self.addresses[u]
+            target = self.addresses[v]
+            path = address_path(source = list(source), target = list(target))
+            points = np.array([radial_pos[tuple(address)] for address in path])
+            bps = bspline(points, n = num_spline_points, degree = len(path)-1)
+
+
+            # interpolate colours between source and target node
+            cm = LinearSegmentedColormap.from_list("Custom", [address_to_colour[tuple(addr)] for addr in path], N = num_spline_points)
+
+            for (ix, (p,q)) in enumerate(zip(bps, bps[1:])):
+                frac = ix / len(bps)
+                plt.plot( [p[0], q[0]], [p[1], q[1]], color = cm(frac), alpha = 0.8)
+
+        ax.axis("off")
+        plt.autoscale()
+        plt.show()
 
 
     def get_path_cost_directed(self, u: str, v: str) -> float:
