@@ -109,7 +109,7 @@ def address_path(source : List[Any], target : List[Any]) -> List[List[Any]]:
     
     # empty target means we just walk from the source
     elif target == []:
-        return [source[:ix] for ix in range(len(source),-1,-1)]
+        return [source[:ix] for ix in range(len(source),0,-1)]
 
     # remove common prefix to find the smallest common super-module
     elif source[0] == target[0]:
