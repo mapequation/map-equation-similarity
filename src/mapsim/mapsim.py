@@ -1,17 +1,18 @@
 from __future__ import annotations
-
-from infomap      import Infomap
-from networkx     import Graph
+# -----------------------------------------------------------------------------
+from infomap           import Infomap
+from networkx          import Graph
 from matplotlib.colors import LinearSegmentedColormap
-from numpy        import log2, inf as infinity
-from numpy.random import choice
-from typing       import Optional as Maybe, Tuple
-
-from .codebook    import CodeBook
-from .io.reader   import *
-
+from numpy             import log2, inf as infinity
+from numpy.random      import choice
+from typing            import Optional as Maybe, Tuple
+# -----------------------------------------------------------------------------
+from .codebook         import CodeBook
+from .io.reader        import *
+# -----------------------------------------------------------------------------
 import matplotlib.pyplot as plt
-import seaborn as sb
+import seaborn           as sb
+# -----------------------------------------------------------------------------
 
 class MapSim():
     """
