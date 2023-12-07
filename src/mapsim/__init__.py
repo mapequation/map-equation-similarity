@@ -4,4 +4,4 @@ from .mapsim   import MapSim, MapSimSampler
 
 __all__ = ["io", "CodeBook", "MapSim", "MapSimSampler"]
 
-__version__ = "0.6.2"
+__version__ = "0.6.3"

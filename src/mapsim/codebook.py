@@ -11,21 +11,55 @@ class PrioritisedItem:
     item: Any=field(compare=False)
 
 
-def assignCodewords(t, prefix = "") -> List:
+def assignCodewords(t : Tuple, prefix : str = "") -> List[Tuple[Any, str]]:
+    """
+    Assigns codewords to the tree represented by the given tuple t.
+
+    Parameters
+    ----------
+    t : Tuple
+        The Huffman tree.
+
+    prefix : str = ""
+        The prefix that should be prepended to all codewords.
+
+    Returns
+    -------
+    List[Tuple[Any, str]]
+        A list of symbols and their assigned codewords.
+    """
     if type(t) == tuple:
         l,r = t
         return assignCodewords(l, prefix = prefix + "0") \
              + assignCodewords(r, prefix = prefix + "1")
+
     else:
         return [(t, prefix)]
         
 
-def mkHuffmanCode(X : List, P : List[float]):
+def mkHuffmanCode(X : List[Any], P : List[float]) -> Dict[Any, str]:
+    """
+    Creates a Huffman code for the given symbols with probabilities P.
+
+    Parameters
+    ----------
+    X : List[Any]
+        a list of symbols
+
+    P : List[float]
+        the symbols' probabilities
+
+    Returns
+    -------
+    Dict[Any, str]
+        A dictionary with symbols as keys and codewords as values.
+    """
     q = []
 
+    # use a head to keep the partial trees sorted
     for (x, p) in zip(X, P):
         heappush(q, PrioritisedItem(cost = p, item = x))
-    
+
     while len(q) > 1:
         l = heappop(q)
         r = heappop(q)
@@ -75,7 +109,7 @@ class CodeBook:
 
         Returns
         -------
-        str
+        str"
             The serialised codebook
         """
         subs  = "".join([f"\n{cb._serialise(indent = indent + 4, codeword = self.code_words[k])}" for k,cb in self.code_book.items()])
@@ -91,6 +125,9 @@ class CodeBook:
 
 
     def mk_codewords(self) -> None:
+        """
+        Traverses the codebook and assigns codewords to all modules and nodes.
+        """
         self.code_words = dict()
 
         X = list(self.code_book.keys())
@@ -107,6 +144,25 @@ class CodeBook:
 
         for cb in self.code_book.values():
             cb.mk_codewords()
+
+
+    def _get_address_node_links(self) -> List:
+        """
+        Traverses the codebook and returns the links in the coding tree, using
+        the modules' addresses as node names.
+        """
+        res = []
+
+        for k,v in self.code_book.items():
+            # if there's only a node in the codebook, we've reached the leaf
+            if v.node is not None:
+                res += [f"{k}"]
+
+            # otherwise, we traverse the sub-modules
+            else:
+                res += [(k,f"{k}:{l}") for l in v._get_address_node_links()]
+
+        return res
 
 
     def get_nodes(self) -> List[str]:
@@ -132,7 +188,7 @@ class CodeBook:
         ----------
         path: List[int]
             The path to the submodule of interest.
-        
+
         Returns
         -------
         CodeBook
@@ -140,8 +196,9 @@ class CodeBook:
         """
         if path == ():
             return self
-        
+
         return self.code_book[path[0]].get_module(path[1:])
+
 
     def insert_path(self, node: str, path: Tuple[int, ...], flow: float, enter: float, exit: float) -> None:
         """
