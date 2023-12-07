@@ -6,12 +6,20 @@ import seaborn           as sb
 from .mapsim import MapSim
 from .util   import address_path, bspline, inits
 
-def plot_hierarchy(mapsim : MapSim, G : nx.Graph) -> None:
+from matplotlib.colors import LinearSegmentedColormap
+from typing            import Tuple
+
+
+def plot_hierarchy(mapsim : MapSim, G : nx.Graph, figsize : Tuple[float, float] = (5,5)) -> None:
     # node addresses to flow
     node_to_flow = { address : mapsim.cb.get_flow(address) for address in mapsim.addresses.values() }
 
     # a reverse mapping from addresses to nodes
     address_to_node = { v:k for k,v in mapsim.addresses.items()}
+
+    # remember what colours the nodes get
+    address_to_colour = dict()
+    address_to_colour[()] = "grey"
 
     # the nodes that represent modules, as opposed to actual nodes
     module_nodes = set()
@@ -27,7 +35,7 @@ def plot_hierarchy(mapsim : MapSim, G : nx.Graph) -> None:
         module_node_to_flow[module_node] = sub_codebook.flow
     
     # the actual plotting...
-    fig, ax = plt.subplots(1, 1, figsize = (6,6))
+    fig, ax = plt.subplots(1, 1, figsize = figsize)
 
     palette = sb.color_palette("colorblind")
 
@@ -46,6 +54,8 @@ def plot_hierarchy(mapsim : MapSim, G : nx.Graph) -> None:
     modules = dict()
 
     theta = 0
+    node_colours = []
+    node_flows   = []
     for (address, flow) in node_to_flow.items():
         node = address_to_node[address]
 
@@ -57,13 +67,16 @@ def plot_hierarchy(mapsim : MapSim, G : nx.Graph) -> None:
         p = child_poincare(0, 0, r = 2, theta = theta)
         radial_pos[address] = p
         theta += flow * np.pi
-        ax.pie( [flow] # flows
-            , colors = [palette[(module-1) % len(palette)]]
-            , center = p
-            , radius = 0.5 * np.sqrt(flow)
-            , startangle = 0 # startangle
-            , wedgeprops = { "linewidth": 1, "edgecolor": "white" }
-            )
+
+        node_flows.append(flow)
+        node_colours.append(palette[(module-1) % len(palette)])
+        address_to_colour[address] = palette[(module-1) % len(palette)]
+
+    ax.pie( node_flows
+          , radius = 2.1
+          , colors = node_colours
+          , wedgeprops = dict( width = 0.1, edgecolor = "w" )
+          )
 
     plt.scatter([0], [0], marker = "s", c = ["grey"])
 
@@ -85,6 +98,7 @@ def plot_hierarchy(mapsim : MapSim, G : nx.Graph) -> None:
         angle_offsets[address[:-1]] = theta
 
         parent = radial_pos[address[:-1]]
+        address_to_colour[address] = palette[(address[0] - 1) % len(palette)]
 
         plt.plot([parent[0],p[0]], [parent[1],p[1]], c = "grey", alpha = 0.5)
         plt.scatter([p[0]], [p[1]], marker = "s", c = [palette[(address[0] - 1) % len(palette)]])
@@ -94,7 +108,6 @@ def plot_hierarchy(mapsim : MapSim, G : nx.Graph) -> None:
         target = mapsim.addresses[v]
         path = address_path(source = list(source), target = list(target))
         points = np.array([radial_pos[tuple(address)] for address in path])
-        #bps = np.array([BezierSegment(points).point_at_t(x) for x in np.linspace(0,1,num = 100)])
         bps = bspline(points, n = 100, degree = len(path)-1)
 
         if modules[u] == modules[v]:
@@ -104,10 +117,12 @@ def plot_hierarchy(mapsim : MapSim, G : nx.Graph) -> None:
             colour_u = palette[(modules[u]-1) % len(palette)]
             colour_v = palette[(modules[v]-1) % len(palette)]
 
+            # interpolate colours between source and target node
+            cm = LinearSegmentedColormap.from_list("Custom", [address_to_colour[tuple(addr)] for addr in path], N = len(bps))
+
             for (ix, (p,q)) in enumerate(zip(bps, bps[1:])):
                 frac = ix / len(bps)
-                colour = (1-frac) * np.array(colour_u) + frac * np.array(colour_v)
-                plt.plot([p[0], q[0]], [p[1], q[1]], color = colour, alpha = 0.8)
+                plt.plot( [p[0], q[0]], [p[1], q[1]], color = cm(frac), alpha = 0.8)
 
     ax.axis("off")
     plt.autoscale()
