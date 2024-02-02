@@ -11,7 +11,7 @@ To get started, create a virtual environment, activate it, and install MapSim.
 
 ```bash
 # crate the virtual environment
-virtualend mapsim-venv
+virtualenv mapsim-venv
 
 # activate the virtual environment
 source mapsim-venv/bin/activate
