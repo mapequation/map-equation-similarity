@@ -2,7 +2,10 @@ from __future__ import annotations
 # -----------------------------------------------------------------------------
 from infomap                              import Infomap
 from networkx                             import Graph
+from matplotlib.bezier                    import BezierSegment
 from matplotlib.colors                    import LinearSegmentedColormap
+from matplotlib.patches                   import FancyArrowPatch, PathPatch
+from matplotlib.path                      import Path
 from networkx.linalg.laplacianmatrix      import _transition_matrix
 from numpy                                import log2, inf as infinity
 from numpy.random                         import choice
@@ -50,6 +53,9 @@ class MapSim():
 
         # for making predictions later
         self.node_IDs_to_labels : Dict[int, str] = infomap.names
+
+        # prepare for more efficient similarity calculations
+        # self._prepare_sampling()
 
         return self
 
@@ -114,6 +120,9 @@ class MapSim():
         # for making predictions later
         self.node_IDs_to_labels : Dict[int, str] = self.infomap.names
 
+        # prepare for more efficient similarity calculations
+        # self._prepare_sampling()
+
         return self
 
     def _build_codebooks(self) -> None:
@@ -133,8 +142,43 @@ class MapSim():
         self.cb.calculate_costs()
         self.cb.mk_codewords()
 
-    def mapsim(self, u: str, v : str) -> float:
-        return self.cb.get_walk_rate(self.addresses[u], self.addresses[v])
+    def _prepare_sampling(self) -> None:
+        self.module_transition_rates = dict()
+        self.softmax_normalisers     = dict()
+
+        # calculate the transition rates for modules
+        modules = [path for path, m in self.modules.items() if len(m["nodes"]) == 0 and len(path) > 0]
+
+        for m1 in modules:
+            for m2 in modules:
+                if m1 != m2:
+                    # we append 0 to the starting address because we need to consider exiting that module
+                    self.module_transition_rates[(m1, m2)] = self.cb.get_walk_rate((m1) + (0,), m2)
+        
+        # calculate the softmax normalisers
+        self.softmax_normalisers = dict()
+        the_nodes                = set(self.cb.get_nodes())
+        modules                  = [path for path, m in self.modules.items() if len(m["nodes"]) == 0 and len(path) > 0]
+        for path in modules:
+            self.softmax_normalisers[path] = 0
+
+            module_nodes = set(self.cb.get_module(path).get_nodes())
+            for v in the_nodes:
+                path_v = self.addresses[v]
+                if v in module_nodes:
+                    self.softmax_normalisers[path] += self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])
+                else:
+                    self.softmax_normalisers[path] += self.module_transition_rates[(path, path_v[:-1])] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])
+
+    def get_probability(self, u, v) -> float:
+        path_u     = self.addresses[u]
+        path_v     = self.addresses[v]
+        if path_u[:-1] == path_v[:-1]:
+            d_uv = self.cb.get_walk_rate(path_u, path_v)
+        else:
+            d_uv = self.module_transition_rates[(path_u[:-1], path_v[:-1])] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])
+        normaliser = self.softmax_normalisers[path_u[:-1]] - self.cb.get_module(path_u[:-1]).get_path_rate_forward(path_u[-1:])
+        return d_uv / normaliser
 
     def mapsim(self, u: str, v : str) -> float:
         return self.cb.get_walk_rate(self.addresses[u], self.addresses[v])
@@ -252,136 +296,7 @@ class MapSim():
             target = self.addresses[v]
             path = address_path(source = list(source), target = list(target))
             points = np.array([radial_pos[tuple(address)] for address in path])
-            bps = bspline(points, n = num_spline_points, degree = len(path)-1)
-
-
-            # interpolate colours between source and target node
-            cm = LinearSegmentedColormap.from_list("Custom", [address_to_colour[tuple(addr)] for addr in path], N = num_spline_points)
-
-            for (ix, (p,q)) in enumerate(zip(bps, bps[1:])):
-                frac = ix / len(bps)
-                plt.plot( [p[0], q[0]], [p[1], q[1]], color = cm(frac), alpha = 0.8)
-
-        ax.axis("off")
-        plt.autoscale()
-        plt.show()
-
-
-
-    def plot_hierarchy(self, G : Graph, figsize : Tuple[float, float] = (5,5), num_spline_points : int = 10) -> None:
-        """
-        Plot the partition's hierarchical organisation in a circular plot.
-
-        Parameters
-        ----------
-        G : Graph
-            The graph that contains the links.
-        
-        figsize : Tuple[float, float]
-            The size of the figure.
-        
-        num_spline_points : int
-            The number of points to draw smooth splines between nodes.
-        """
-        # node addresses to flow
-        node_to_flow = { address : self.cb.get_flow(address) for address in self.addresses.values() }
-
-        # a reverse mapping from addresses to nodes
-        address_to_node = { v:k for k,v in self.addresses.items()}
-
-        # remember what colours the nodes get
-        address_to_colour = dict()
-        address_to_colour[()] = "grey"
-
-        # the nodes that represent modules, as opposed to actual nodes
-        module_nodes = set()
-
-        for address in self.addresses.values():
-            for init in inits(address):
-                module_nodes.add(init)
-        
-        # the flows for the module nodes
-        module_node_to_flow = dict()
-        for module_node in module_nodes:
-            sub_codebook = self.cb.get_module(module_node)
-            module_node_to_flow[module_node] = sub_codebook.flow
-        
-        # the actual plotting...
-        fig, ax = plt.subplots(1, 1, figsize = figsize)
-
-        palette = sb.color_palette("colorblind")
-
-        # radial positions for all nodes
-        radial_pos = dict()
-        radial_pos[()] = (0,0)
-
-        # calculate node positions on the disc
-        def child_poincare(x,y,r,theta):
-            x_ = x + r * np.cos(theta)
-            y_ = y + r * np.sin(theta)
-
-            return (x_,y_)
-
-        # the nodes' modules
-        modules = dict()
-
-        theta = 0
-        node_colours = []
-        node_flows   = []
-        for (address, flow) in node_to_flow.items():
-            node = address_to_node[address]
-
-            # super-crude way to decide what module the node belongs to
-            modules[node] = address[0]
-            module = address[0]
-
-            theta += flow * np.pi
-            p = child_poincare(0, 0, r = 2, theta = theta)
-            radial_pos[address] = p
-            theta += flow * np.pi
-
-            node_flows.append(flow)
-            node_colours.append(palette[(module-1) % len(palette)])
-            address_to_colour[address] = palette[(module-1) % len(palette)]
-
-        ax.pie( node_flows
-            , radius = 2.1
-            , colors = node_colours
-            , wedgeprops = dict( width = 0.1, edgecolor = "w" )
-            )
-
-        plt.scatter([0], [0], marker = "s", c = ["grey"])
-
-        angle_offsets = {():0}
-        for address in sorted(module_nodes, key = lambda addr: (len(addr), addr)):
-            # get angle offset for *this* node
-            theta = angle_offsets[address[:-1]]
-
-            # and remember the offset for potential children
-            angle_offsets[address] = theta
-
-            theta += module_node_to_flow[address] * np.pi
-            r = sum([1/2**i for i in range(len(address))])
-            p = child_poincare(0, 0, r = r, theta = theta)
-            radial_pos[address] = p
-            theta += module_node_to_flow[address] * np.pi
-
-            # and update the angle offset for siblings
-            angle_offsets[address[:-1]] = theta
-
-            parent = radial_pos[address[:-1]]
-            address_to_colour[address] = palette[(address[0] - 1) % len(palette)]
-
-            plt.plot([parent[0],p[0]], [parent[1],p[1]], c = "grey", alpha = 0.5)
-            plt.scatter([p[0]], [p[1]], marker = "s", c = [palette[(address[0] - 1) % len(palette)]])
-
-        for (u, v) in G.edges:
-            source = self.addresses[u]
-            target = self.addresses[v]
-            path = address_path(source = list(source), target = list(target))
-            points = np.array([radial_pos[tuple(address)] for address in path])
-            bps = bspline(points, n = num_spline_points, degree = len(path)-1)
-
+            bps = bspline(points, n = num_spline_points, degree = 3)
 
             # interpolate colours between source and target node
             cm = LinearSegmentedColormap.from_list("Custom", [address_to_colour[tuple(addr)] for addr in path], N = num_spline_points)
@@ -389,6 +304,8 @@ class MapSim():
             for (ix, (p,q)) in enumerate(zip(bps, bps[1:])):
                 frac = ix / len(bps)
                 plt.plot( [p[0], q[0]], [p[1], q[1]], color = cm(frac), alpha = 0.8)
+
+            #ax.add_patch(PathPatch(Path(vertices = points, codes = [Path.MOVETO] + (len(points) - 1) * [Path.CURVE3]), fc = "None"))
 
         ax.axis("off")
         plt.autoscale()
@@ -617,19 +534,43 @@ class MapSim():
             for u, addr_u in Ma.addresses.items():
                 p_u = Ma.cb.get_flow(addr_u)
 
-                t_u_a = Ma.predict_interaction_rates(u, include_self_links = False)
-                t_u_b = Mb.predict_interaction_rates(u, include_self_links = False)
+                # t_u_a = Ma.predict_interaction_probabilities(u, include_self_links = False)
+                # t_u_b = Mb.predict_interaction_probabilities(u, include_self_links = False)
+                r_u_a = Ma.predict_interaction_rates(u, include_self_links = False)
+                r_u_b = Mb.predict_interaction_rates(u, include_self_links = False)
+                s_a   = sum(r_u_a.values())
 
-                s_a = sum(t_u_a.values())
-
-                for v in t_u_a.keys():
-                    c    = p_u * (t_u_a[v] / s_a) * log2(t_u_a[v] / t_u_b[v])
+                # for v in t_u_a.keys():
+                for v in r_u_a.keys():
+                    # c    = p_u * t_u_a[v]* log2(t_u_a[v] / t_u_b[v])
+                    c = p_u * (r_u_a[v] / s_a) * log2(r_u_a[v] / r_u_b[v])
                     res += c
 
                     if verbose:
-                        print(f"{u}->{v} {p_u:.2f} * {t_u_a[v] / s_a:.2f} * log2({t_u_a[v]:.2f} / {t_u_b[v]:.2f}) = {c:.2f}")
+                        # print(f"{u}->{v} {p_u:.2f} * {t_u_a[v] / s_a:.2f} * log2({t_u_a[v]:.2f} / {t_u_b[v]:.2f}) = {c:.2f}")
+                        # print(f"{u}->{v} {p_u:.2f} * {t_u_a[v]:.2f} * log2({t_u_a[v]:.2f} / {t_u_b[v]:.2f}) = {c:.2f}")
+                        print(f"{u}->{v} {p_u:.2f} * {r_u_a[v] / s_a:.2f} * log2({r_u_a[v]:.2f} / {r_u_b[v]:.2f}) = {c:.2f}")
 
-        return res
+        return np.round(res, decimals = 14)
+    
+    def D_per_node(self, other : MapSim, u = None, G : Maybe[Graph] = None, verbose : bool = False) -> float:
+        Ma  = self
+        Mb  = other
+        res = 0
+        
+        addr_u = Ma.addresses[u]
+        p_u    = Ma.cb.get_flow(addr_u)
+
+        r_u_a = Ma.predict_interaction_rates(u, include_self_links = False)
+        r_u_b = Mb.predict_interaction_rates(u, include_self_links = False)
+        s_a   = sum(r_u_a.values())
+
+        for v in r_u_a.keys():
+            c = p_u * (r_u_a[v] / s_a) * log2(r_u_a[v] / r_u_b[v])
+            res += c
+        
+        return np.round(res, decimals = 14)
+
 
 
 class MapSimSampler(MapSim):
@@ -670,7 +611,7 @@ class MapSimSampler(MapSim):
                     self.softmax_normalisers[path] += 2**(self.beta * log2(self.module_transition_rates[(path, path_v[:-1])] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])))
 
     def from_infomap(self, infomap: Infomap, mapping: Dict[int, str] | None = None, netfile: str | None = None) -> MapSim:
-        super().from_infomap(infomap, mapping, netfile)
+        super().from_infomap(infomap)
 
         return self
 
