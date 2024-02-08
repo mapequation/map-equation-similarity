@@ -217,10 +217,14 @@ To "convert" them into costs in bits, we can take their negative $\log_2$:
 ## How flow divergence works
 Flow divergence combines ideas from the map equation and the Kullback-Leibler divergence.
 For two probability distributions $P$ and $Q$ that are defined on the same sample space $X$, the Kullback-Leibler divergence quantifies the expected additional number of bits required to describe samples from $X$ using an estimate $Q$ of its true frequencies $P$,
-$$ D_{KL}(P\,||\,Q) = \sum_{x \in X} p_x \log_2 \frac{p_x}{q_x}. $$
+```math
+D_{KL}(P\,||\,Q) = \sum_{x \in X} p_x \log_2 \frac{p_x}{q_x}.
+```
 
 Following the same idea, flow divergence quantifies the expected additional number of bits per step for describing a random walk using an estimate B of the networks "true" community structure A.
-$$ D_F(\mathsf{A} \,||\, \mathsf{B}) = \sum_{u \in V} p_u \sum_{v \in V} t_{uv}^\mathsf{A} \log_2 \frac{\text{mapsim}(\mathsf{A}, u, v)}{\text{mapsim}(\mathsf{B}, u, v)}, $$
+```math
+D_F(\mathsf{A} \,||\, \mathsf{B}) = \sum_{u \in V} p_u \sum_{v \in V} t_{uv}^\mathsf{A} \log_2 \frac{\text{mapsim}(\mathsf{A}, u, v)}{\text{mapsim}(\mathsf{B}, u, v)},
+```
 where $V$ is the set of nodes in the network, $\mathsf{A}$ and $\mathsf{B}$ are the network partitions we want to compare, and $t_{uv}^\mathsf{A}$ is the transition probability from node $u$ to $v$ based on the reference partition $\mathsf{A}$.
 
 
