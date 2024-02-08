@@ -4,7 +4,6 @@ MapSim is explained in [this paper](https://proceedings.mlr.press/v198/blocker22
 
 This repository also implements flow divergence, an information-theoretic divergence measure for comparing network, explained in [this paper](https://arxiv.org/abs/2401.09052).
 
-MapSim builds on the map equation for community detection:
 
 ## Setup
 To get started, create a virtual environment, activate it, and install MapSim.
@@ -99,6 +98,66 @@ We can also ask for similarities between nodes that are *not* connected by a lin
 
 Generally speaking, nodes are more similar to each other when they are in the same community.
 
+To compare entire partitions, we can use flow divergence.
+Consider the following example network with four different partitions:
+
+<img src="img/flow-divergence-motivation.svg" alt="Four different partitions for the same network." width="800"/>
+
+Let's define the network using `networkx` and those partitions as dictionaries where keys are node IDs and values are module assignments,
+```python
+G_three_triangles = nx.Graph()
+
+# the triangles
+G_three_triangles.add_edge(1, 2, weight = 1)
+G_three_triangles.add_edge(2, 3, weight = 1)
+G_three_triangles.add_edge(3, 1, weight = 1)
+
+G_three_triangles.add_edge(4, 5, weight = 1)
+G_three_triangles.add_edge(5, 6, weight = 1)
+G_three_triangles.add_edge(6, 4, weight = 1)
+
+G_three_triangles.add_edge(7, 8, weight = 1)
+G_three_triangles.add_edge(8, 9, weight = 1)
+G_three_triangles.add_edge(9, 7, weight = 1)
+
+# connect the triangles
+G_three_triangles.add_edge(2, 4, weight = 1)
+G_three_triangles.add_edge(6, 8, weight = 1)
+G_three_triangles.add_edge(7, 3, weight = 1)
+
+# partitions
+A = {1:1, 2:1, 3:1, 4:2, 5:2, 6:2, 7:3, 8:3, 9:3}
+B = {1:1, 2:1, 3:3, 4:1, 5:2, 6:2, 7:3, 8:2, 9:3}
+C = {1:1, 2:2, 3:1, 4:2, 5:2, 6:3, 7:1, 8:3, 9:3}
+D = {1:3, 2:1, 3:1, 4:2, 5:1, 6:2, 7:3, 8:3, 9:2}
+```
+
+And let's load them into `MapSim`
+```python
+def mapsim_from_modules(G, M):
+    im = Infomap(silent = True, no_infomap = True)
+    im.add_networkx_graph(G)
+    im.run(initial_partition = M)
+    return MapSim().from_infomap(im)
+
+ms_A = mapsim_from_modules(G_three_triangles, A)
+ms_B = mapsim_from_modules(G_three_triangles, B)
+ms_C = mapsim_from_modules(G_three_triangles, C)
+ms_D = mapsim_from_modules(G_three_triangles, D)
+```
+
+Now we can compare the partitions with flow divergence.
+```python
+> ms_A.D(ms_A)
+0.0
+> ms_A.D(ms_B)
+1.91508642047648
+> ms_A.D(ms_C)
+1.91508642047648
+> ms_A.D(ms_D)
+1.50296642395886
+```
+
 
 ## How MapSim works
 To explain how MapSim works, let's first take a look at how the map equation works.
@@ -153,6 +212,16 @@ To "convert" them into costs in bits, we can take their negative $\log_2$:
   * $3 \to 1: -\log_2 \left( \frac{3}{14} \right) \approx 2.22$ bits
   * $3 \to 5: -\log_2 \left( \frac{2}{14} \cdot \frac{2}{6} \cdot \frac{3}{18} \right) \approx 6.98$ bits
   * $3 \to 12: -\log_2 \left( \frac{2}{14} \cdot \frac{2}{6} \cdot \frac{5}{22} \right) \approx 6.53$ bits
+
+
+## How flow divergence works
+Flow divergence combines ideas from the map equation and the Kullback-Leibler divergence.
+For two probability distributions $P$ and $Q$ that are defined on the same sample space $X$, the Kullback-Leibler divergence quantifies the expected additional number of bits required to describe samples from $X$ using an estimate $Q$ of its true frequencies $P$,
+$$ D_{KL}(P\,||\,Q) = \sum_{x \in X} p_x \log_2 \frac{p_x}{q_x}. $$
+
+Following the same idea, flow divergence quantifies the expected additional number of bits per step for describing a random walk using an estimate B of the networks "true" community structure A.
+$$ D_F(\mathsf{A} \,||\, \mathsf{B}) = \sum_{u \in V} p_u \sum_{v \in V} t_{uv}^\mathsf{A} \log_2 \frac{\text{mapsim}(\mathsf{A}, u, v)}{\text{mapsim}(\mathsf{B}, u, v)}, $$
+where $V$ is the set of nodes in the network, $\mathsf{A}$ and $\mathsf{B}$ are the network partitions we want to compare, and $t_{uv}^\mathsf{A}$ is the transition probability from node $u$ to $v$ based on the reference partition $\mathsf{A}$.
 
 
 ## Citation
