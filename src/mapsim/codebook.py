@@ -307,7 +307,7 @@ class CodeBook:
         """
         # self-link
         if len(source) == 1 and len(target) == 1 and source[0] == target[0]:
-            return self.code_book[target[0]].enter / self.normaliser
+            return (self.code_book[target[0]].enter / self.normaliser) if self.normaliser > 0.0 else 0.0
 
         # clip off common prefixes
         if len(source) > 0 and len(target) > 0 and source[0] == target[0]:
