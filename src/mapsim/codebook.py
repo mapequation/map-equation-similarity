@@ -421,3 +421,14 @@ class CodeBook:
             D_KL += (rP/sum(rPs)) * log2((rP/sum(rPs)) / (rQ/sum(rQs)))
 
         return P.get_flow(path = sourceP) * D_KL
+
+
+    def L(self : CodeBook) -> float:
+        if self.node is not None:
+            return self.enter
+
+        Q = [m.enter for m in self.code_book.values()] + [self.exit]
+        print(Q)
+
+        return sum(Q) * entropy(Q, base = 2) \
+             + sum([m.flow * m.L() for m in self.code_book.values()])
