@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from heapq       import heappush, heappop
 from numpy       import log2, inf
 from typing      import Any, Dict, List, Optional as Maybe, Tuple
+from scipy.stats import entropy
 
 
 @dataclass(order=True)
@@ -250,7 +251,7 @@ class CodeBook:
 
     def calculate_normalisers(self) -> None:
         """
-        Calculate the normalisation factors for all code books, that is the
+        Calculate the normalisation factors for all codebooks, that is the
         codebook usage rates.
         """
         self.normaliser = self.exit
@@ -370,7 +371,7 @@ class CodeBook:
 
         for k in self.code_book.keys():
             heappush(targets, PrioritisedItem(cost = entry_cost - log2(self.code_book[k].enter / self.normaliser), item = self.code_book[k]))
-        return targets        
+        return targets
 
 
     def recommend(self, path : Tuple[int, ...]):
@@ -396,7 +397,8 @@ class CodeBook:
                 break
 
         return exit_cost, targets
-    
+
+
     def divergence(self : CodeBook, Q : CodeBook, source: Tuple[Tuple[int, ...]], targets: List[Tuple[Tuple[int, ...]]]) -> float:
         P    = self
         D_KL = 0.0
@@ -408,15 +410,13 @@ class CodeBook:
 
         for target in targets:
             targetP, targetQ = target
-            
+
             rPs.append(P.get_walk_rate(source = sourceP, target = targetP))
             rQs.append(Q.get_walk_rate(source = sourceQ, target = targetQ))
 
         rPs = [rP/sum(rPs) for rP in rPs]
         rQs = [rQ/sum(rQs) for rQ in rQs]
 
-        #print(f"Ps = {rPs}, Qs = {rQs}")
-        
         for rP, rQ in zip(rPs, rQs):
             D_KL += (rP/sum(rPs)) * log2((rP/sum(rPs)) / (rQ/sum(rQs)))
 
@@ -428,7 +428,6 @@ class CodeBook:
             return self.enter
 
         Q = [m.enter for m in self.code_book.values()] + [self.exit]
-        print(Q)
 
         return sum(Q) * entropy(Q, base = 2) \
              + sum([m.flow * m.L() for m in self.code_book.values()])
