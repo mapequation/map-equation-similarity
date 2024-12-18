@@ -173,11 +173,11 @@ class MapSim():
         for addr_m in self.non_empty_modules:
             m   = self.modules[addr_m]
             p_m = m["flow"] + m["exit"]
-            self.module_coding_fraction[addr_m]  = 1.0 - m["exit"] / p_m
+            self.module_coding_fraction[addr_m]  = 1.0 - m["exit"] / p_m if p_m > 0 else 1.0 # ToDo: is this correct?
             self.module_internal_entropy[addr_m] = 0.0
             for addr_u in self.non_empty_modules[addr_m]:
                 u = self.modules[addr_u]
-                self.module_internal_entropy[addr_m] += (u["flow"] / p_m) * log2(u["flow"] / p_m)
+                self.module_internal_entropy[addr_m] += (u["flow"] / p_m) * log2(u["flow"] / p_m) if p_m > 0 else 0 # ToDo: is this correct?
 
         for addr_u in self.addresses.values():
             numerator = 0
@@ -185,8 +185,8 @@ class MapSim():
             for addr_m in self.non_empty_modules:
                 m   = self.modules[addr_m]
                 p_m = m["flow"] + m["exit"]
-                numerator += (self.module_coding_fraction[addr_m] - (p_u / p_m if addr_u[:-1] == addr_m else 0.0)) * self.module_transition_rates[addr_u[:-1], addr_m]
-            self.phi[addr_u] = p_u / numerator
+                numerator += (self.module_coding_fraction[addr_m] - (p_u / p_m if addr_u[:-1] == addr_m else 0.0)) * self.module_transition_rates[addr_u[:-1], addr_m] if p_m > 0 else 1.0 # ToDo: is this correct?
+            self.phi[addr_u] = p_u / numerator if numerator > 0 else 0
 
     def _prepare_sampling(self) -> None:
         self.module_transition_rates = dict()
@@ -230,7 +230,7 @@ class MapSim():
         return self.cb.get_walk_rate(self.addresses[u], self.addresses[v])
 
 
-    def plot_hierarchy(self, G : Graph, figsize : Tuple[float, float] = (5,5), num_spline_points : int = 10) -> None:
+    def plot_hierarchy(self, G : Graph, figsize : Tuple[float, float] = (5,5), num_spline_points : int = 10, hide_links = False, link_alpha = 0.5) -> None:
         """
         Plot the partition's hierarchical organisation in a circular plot.
 
@@ -337,21 +337,23 @@ class MapSim():
             plt.plot([parent[0],p[0]], [parent[1],p[1]], c = "grey", alpha = 0.5)
             plt.scatter([p[0]], [p[1]], marker = "s", c = [palette[(address[0] - 1) % len(palette)]])
 
-        for (u, v) in G.edges:
-            source = self.addresses[u]
-            target = self.addresses[v]
-            path = address_path(source = list(source), target = list(target))
-            points = np.array([radial_pos[tuple(address)] for address in path])
-            bps = bspline(points, n = num_spline_points, degree = 3)
+        if not hide_links:
+            for (u, v) in G.edges:
+                if u != v:
+                    source = self.addresses[u]
+                    target = self.addresses[v]
+                    path = address_path(source = list(source), target = list(target))
+                    points = np.array([radial_pos[tuple(address)] for address in path])
+                    bps = bspline(points, n = num_spline_points, degree = 3)
 
-            # interpolate colours between source and target node
-            cm = LinearSegmentedColormap.from_list("Custom", [address_to_colour[tuple(addr)] for addr in path], N = num_spline_points)
+                    # interpolate colours between source and target node
+                    cm = LinearSegmentedColormap.from_list("Custom", [address_to_colour[tuple(addr)] for addr in path], N = num_spline_points)
 
-            for (ix, (p,q)) in enumerate(zip(bps, bps[1:])):
-                frac = ix / len(bps)
-                plt.plot( [p[0], q[0]], [p[1], q[1]], color = cm(frac), alpha = 0.8)
+                    for (ix, (p,q)) in enumerate(zip(bps, bps[1:])):
+                        frac = ix / len(bps)
+                        plt.plot( [p[0], q[0]], [p[1], q[1]], color = cm(frac), alpha = link_alpha)
 
-            #ax.add_patch(PathPatch(Path(vertices = points, codes = [Path.MOVETO] + (len(points) - 1) * [Path.CURVE3]), fc = "None"))
+                    # ax.add_patch(PathPatch(Path(vertices = points, codes = [Path.MOVETO] + (len(points) - 1) * [Path.CURVE3]), fc = "None"))
 
         ax.axis("off")
         plt.autoscale()
@@ -626,7 +628,7 @@ class MapSim():
                     s_a   = sum(r_u_a.values())
 
                     for v in r_u_a.keys():
-                        c = p_u * (r_u_a[v] / s_a) * log2(r_u_a[v] / r_u_b[v])
+                        c = (p_u * (r_u_a[v] / s_a) * log2(r_u_a[v] / r_u_b[v])) if r_u_a[v] > 0 and r_u_b[v] > 0 else 0
                         res += c
 
                         if verbose:
@@ -647,7 +649,7 @@ class MapSim():
         s_a   = sum(r_u_a.values())
 
         for v in r_u_a.keys():
-            c = p_u * (r_u_a[v] / s_a) * log2(r_u_a[v] / r_u_b[v])
+            c = (p_u * (r_u_a[v] / s_a) * log2(r_u_a[v] / r_u_b[v])) if r_u_a[v] > 0 and r_u_b[v] > 0 else 0
             res += c
         
         return np.round(res, decimals = 14)
@@ -657,6 +659,26 @@ class MapSim():
          , G       : Maybe[Graph] = None
          , verbose : bool         = False
          ) -> float:
+        """
+        Compute the flow divergence between this partition and the other one.
+
+        Parameters
+        ----------
+        other: MapSim
+            The other partition.
+        
+        G: Maybe[Grah]
+            The graph, ignored for now.
+        
+        verbose: bool
+            Ignored for now.
+        
+        Returns
+        -------
+        float
+            The flow divergence between this and the other partition.
+        """
+
         # remember the intersected modules in the other partition so we don't need to loop over irrelevant modules later
         intersection_coding_fraction    = { m_a : dict() for m_a in self.non_empty_modules }
         intersection_internal_entropies = { m_a : dict() for m_a in self.non_empty_modules }
@@ -668,7 +690,9 @@ class MapSim():
         p_m_a : Dict[Tuple[int,...], float] = dict()
         p_m_b : Dict[Tuple[int,...], float] = dict()
 
-        # pre-compute intersections
+        # pre-compute intersections in a single linear pass over the nodes
+        # each node has a membership in this partition and in the other partition,
+        # which allows us computing intersections by considering each node only once.
         for u, addr_u_a in self.addresses.items():
             p_u      = self.modules[addr_u_a]["flow"]
             addr_u_b = other.addresses[u]
