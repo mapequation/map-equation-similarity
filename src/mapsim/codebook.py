@@ -57,7 +57,7 @@ def mkHuffmanCode(X : List[Any], P : List[float]) -> Dict[Any, str]:
     """
     q = []
 
-    # use a head to keep the partial trees sorted
+    # use a heap to keep the partial trees sorted
     for (x, p) in zip(X, P):
         heappush(q, PrioritisedItem(cost = p, item = x))
 
