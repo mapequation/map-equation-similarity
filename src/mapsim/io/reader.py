@@ -6,6 +6,8 @@ from typing       import Callable, DefaultDict, Dict, List, Set, Optional as May
 
 from ..util import *
 
+import numpy as np
+
 class Network(metaclass = ABCMeta):
     @abstractmethod
     def get_nodes(self):
@@ -290,7 +292,7 @@ class Partition(metaclass = ABCMeta):
         self.flows : Dict[str, float] = dict()
 
         # paths to nodes, such as "1:1:2" for node 2 in submodule 1 of module 1.
-        self.paths : Dict[str, Tuple[int, ...]]
+        self.paths : Dict[str, Tuple[int, ...]] = dict()
 
     def get_modules(self) -> DefaultDict[Tuple[int, ...], Dict[str, Set[int] | float]]:
         """
@@ -405,3 +407,132 @@ class PartitionFromInfomap(Partition):
                 node_ID = get_node_ID(node)
                 self.modules[node.path]["nodes"].add(node_ID)
                 self.paths[node_ID] = node.path
+
+
+class Module(metaclass = ABCMeta):
+    def get_nodes(self) -> Set:
+        raise NotImplemented
+    
+    def get_paths(self) -> List:
+        raise NotImplemented
+
+
+class Singleton(Module):
+    def __init__(self, node, flow):
+        self.nodes   = {node}
+        self.flow    = flow
+        self.address = ()
+    
+    def __repr__(self):
+        return f"<Singleton: nodes={self.nodes}, flow={self.flow:.8f}>"
+    
+    def get_nodes(self) -> Set:
+        return self.nodes
+    
+    def get_paths(self) -> List:
+        path = ()
+        info = dict( nodes = self.nodes
+                , flow  = self.flow
+                , enter = self.flow
+                , exit  = self.flow
+                )
+        return [(path, info)]
+
+
+class Sub(Module):
+    def __init__(self, subs, partials, flow, enter, exit):
+        self.subs     : List[Module] = subs
+        self.partials : List[float]  = partials
+        self.flow     : float        = flow
+        self.enter    : float        = enter
+        self.exit     : float        = exit
+    
+    def __repr__(self):
+        return f"<Sub nodes={{{self.get_nodes()}}}, flow={self.flow}, enter={self.enter}, exit={self.exit}>"
+
+    def get_nodes(self) -> Set:
+        res = set()
+        for partial, sub in zip(self.partials, self.subs):
+            if partial > 0:
+                for node in sub.get_nodes():
+                    res.add(node)
+        
+        return res
+    
+    def get_paths(self) -> List:
+        res          = []
+        addr_counter = 0
+        for partial, sub in zip(self.partials, self.subs):
+            if partial > 0:
+                addr_counter += 1
+                for (path, info) in sub.get_paths():
+                    path_ = (addr_counter,) + path
+                    info_ = dict(nodes = info["nodes"], flow = partial * info["flow"], enter = partial * info["enter"], exit = partial * info["exit"])
+                    res.append((path_, info_))
+        return [((), dict(nodes = {}, flow = self.flow, enter = self.enter, exit = self.exit))] + res
+
+
+class PartitionFromSoftAssignmentMatrices(Partition):
+
+    """
+    A class for converting a list of soft cluster assignment matrices to a partition.
+
+    Because assignments are represented as a list of matrices, we assume that all
+    modules have the same depth.
+    """
+    def __init__( self
+                , S: List[np.array]
+                , F: np.array
+                , p: np.array
+                , the_nodes: List
+                ) -> None:
+        """
+        Initialise the partition and read it from the soft cluster assignment matrices.
+        
+        Parameters
+        ----------
+        S: List[np.array]
+            A list of soft cluster assignment matrices. We assume that the first
+            matrix represents the clustering at the highest level and the last one
+            the assignment of nodes to modules at the bottom level.
+        """
+        assert len(S) > 0
+
+        super().__init__()
+
+        self.paths = defaultdict(set)
+
+        # first, create singleton modules for the nodes
+        node_singletons = []
+        for node, flow in zip(the_nodes, p):
+            node_singletons.append(Singleton(node = node, flow = flow))
+        
+        modules = node_singletons
+        s       = S[0]
+
+        C = F
+        for s in S:
+            C      = s.T @ C @ s
+            diag_C = np.diag(C)
+            q      = 1.0 - np.trace(C)
+            q_m    = np.sum(C, axis = 1) - diag_C
+            m_exit = np.sum(C, axis = 0) - diag_C
+            p_m    = q_m + np.sum(C, axis = 0)
+
+            modules_ = []
+            for m, (flow, enter, exit) in enumerate(zip(p_m-q_m, q_m, m_exit)):
+                modules_.append(Sub(subs = modules, partials = s[:,m], flow = flow, enter = enter, exit = exit))
+            
+            modules = modules_
+
+        modules = Sub(subs = modules, partials = [1.0 for _ in modules], flow = 1.0, enter = 0.0, exit = 0.0)
+
+        for path, module in modules.get_paths():
+            self.modules[path]["flow"]  = module["flow"]
+            self.modules[path]["enter"] = module["enter"]
+            self.modules[path]["exit"]  = module["exit"]
+
+            if len(module["nodes"]) > 0:
+                node_ID = list(module["nodes"])[0]
+                self.modules[path]["nodes"].add(node_ID)
+                self.paths[node_ID].add(path)

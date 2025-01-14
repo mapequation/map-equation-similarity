@@ -15,6 +15,8 @@ from .codebook                            import CodeBook
 from .io.reader                           import *
 # -----------------------------------------------------------------------------
 import matplotlib.pyplot as plt
+import networkx          as nx
+import numpy             as np
 import seaborn           as sb
 # -----------------------------------------------------------------------------
 
@@ -60,6 +62,12 @@ class MapSim():
         # prepare for more efficient similarity calculations
         # self._prepare_sampling()
 
+        return self
+    
+    def from_partition(self, partition: Partition) -> MapSim:
+        self.modules   = partition.get_modules()
+        self.addresses = partition.get_paths()
+        self._build_codebooks()
         return self
 
     def run_infomap( self
@@ -754,6 +762,60 @@ class MapSim():
                   , verbose : bool         = False
                   ) -> float:
         return 0 # ToDo
+
+
+
+class OverlappingMapSim(MapSim):
+    def __init__(self):
+        super().__init__()
+    
+    def from_treefile(self, filename: str) -> OverlappingMapSim:
+        raise Exception("Cannot construct overlapping mapsim from tree file.")
+    
+    def from_infomap(self, infomap: Infomap) -> OverlappingMapSim:
+        raise Exception("Cannot construct overlapping mapsim from infomap.")
+    
+    def from_soft_assignments(self, S, F, p, the_nodes):
+        self.partition = PartitionFromSoftAssignmentMatrices(S = S, F = F, p = p, the_nodes = the_nodes)
+        self.from_partition(partition = self.partition)
+        return self
+
+    def predict_interaction_rates(self, node: str, include_self_links: bool = True) -> Dict[str, float]:
+        source_addresses = self.get_address(node)
+
+        rates = dict()
+
+        for target_node, target_addresses in self.addresses.items():
+            if target_node != node or include_self_links:
+                target_node_total_rate = 0.0
+                for source_address in source_addresses:
+                    for target_address in target_addresses:
+                        target_node_total_rate += self.cb.get_walk_rate(source = source_address, target = target_address)
+                rates[target_node] = target_node_total_rate
+
+        return rates
+
+    def D_naive(self, other : MapSim, verbose : bool = False) -> float:
+        Ma = self
+        Mb = other
+
+        res = 0
+
+        for u, addrs_u in Ma.addresses.items():
+            p_u = sum([Ma.cb.get_flow(addr_u) for addr_u in addrs_u])
+
+            r_u_a = Ma.predict_interaction_rates(u, include_self_links = False)
+            r_u_b = Mb.predict_interaction_rates(u, include_self_links = False)
+            s_a   = sum(r_u_a.values())
+
+            for v in r_u_a.keys():
+                c = (p_u * (r_u_a[v] / s_a) * log2(r_u_a[v] / r_u_b[v])) if r_u_a[v] > 0 and r_u_b[v] > 0 else 0
+                res += c
+
+                if verbose:
+                    print(f"{u}->{v} {p_u:.2f} * {r_u_a[v] / s_a:.2f} * log2({r_u_a[v]:.2f} / {r_u_b[v]:.2f}) = {c:.2f}")
+
+        return np.round(res, decimals = 14)
 
 
 
