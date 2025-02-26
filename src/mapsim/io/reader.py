@@ -528,11 +528,12 @@ class PartitionFromSoftAssignmentMatrices(Partition):
         modules = Sub(subs = modules, partials = [1.0 for _ in modules], flow = 1.0, enter = 0.0, exit = 0.0)
 
         for path, module in modules.get_paths():
-            self.modules[path]["flow"]  = module["flow"]
-            self.modules[path]["enter"] = module["enter"]
-            self.modules[path]["exit"]  = module["exit"]
+            if module["flow"] > 0 or len(module["nodes"]) > 0:
+                self.modules[path]["flow"]  = module["flow"]
+                self.modules[path]["enter"] = module["enter"]
+                self.modules[path]["exit"]  = module["exit"]
 
-            if len(module["nodes"]) > 0:
-                node_ID = list(module["nodes"])[0]
-                self.modules[path]["nodes"].add(node_ID)
-                self.paths[node_ID].add(path)
+                if len(module["nodes"]) > 0:
+                    node_ID = list(module["nodes"])[0]
+                    self.modules[path]["nodes"].add(node_ID)
+                    self.paths[node_ID].add(path)

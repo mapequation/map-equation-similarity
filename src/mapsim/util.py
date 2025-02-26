@@ -1,7 +1,15 @@
+import networkx          as nx
 import numpy             as np
 import scipy.interpolate as si
+# -----------------------------------------------------------------------------
+from networkx.linalg.laplacianmatrix import _transition_matrix
+from typing                          import ( Any
+                                            , Iterator
+                                            , List
+                                            , Optional as Maybe
+                                            )
+# -----------------------------------------------------------------------------
 
-from typing import Any, Iterator, List, Optional
 
 def inits(l: List[Any]) -> Iterator[List[Any]]:
     """
@@ -51,7 +59,7 @@ def isPrefix(l1: List[Any], l2: List[Any]) -> bool:
        and isPrefix(l1[1:], l2[1:])
 
 
-def splitQuotationAware(s: str, sep: Optional[str] = " ") -> List[str]:
+def splitQuotationAware(s: str, sep: Maybe[str] = " ") -> List[str]:
     """
     Splits a string with an awareness of (non-nested!) double-quotation marks
 
@@ -63,7 +71,7 @@ def splitQuotationAware(s: str, sep: Optional[str] = " ") -> List[str]:
     s: str
         The string to split.
 
-    sep: Optional[str] = " "
+    sep: Maybe[str] = " "
         The separator for splitting.
 
     """
@@ -151,3 +159,30 @@ def bspline(cv, n=100, degree=3, periodic=False):
     max_param = count - (degree * (1-periodic))
     spl = si.BSpline(kv, cv, degree)
     return spl(np.linspace(0,max_param,n))
+
+
+def mkSmartTeleportationFlow(G, alpha : float = 0.15, iter : int = 1000):
+    the_nodes = sorted(G.nodes)
+    G_dir     = G.to_directed() if not G.is_directed() else G
+    A         = nx.adjacency_matrix(G_dir, nodelist = the_nodes)
+
+    if not G.is_directed():
+        p = np.array([G.degree[u] for u in G.nodes])
+        p = p / p.sum()
+
+        F = A / A.sum()
+    else:
+        # the transition matrix
+        T = _transition_matrix(G_dir, nodelist = the_nodes)
+
+        # distribution according to nodes' in-degrees
+        e_v = np.array([G_dir.in_degree[u] for u in the_nodes])
+        e_v = e_v / e_v.sum()
+
+        p = e_v
+        for _ in range(iter):
+            p = alpha * e_v + (1-alpha) * p.T
+        
+        F = alpha * A / A.sum() + (1-alpha) * (p * T.T).T
+    
+    return F, p

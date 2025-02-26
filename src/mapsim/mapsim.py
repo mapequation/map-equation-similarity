@@ -63,7 +63,7 @@ class MapSim():
         # self._prepare_sampling()
 
         return self
-    
+
     def from_partition(self, partition: Partition) -> MapSim:
         self.modules   = partition.get_modules()
         self.addresses = partition.get_paths()
@@ -157,7 +157,7 @@ class MapSim():
         self.cb.mk_codewords()
 
     def _precompute_flow_divergence(self) -> None:
-        self.module_transition_rates = dict()
+        self.module_transition_rates = dict() # ToDo: they are not module transition rates but mapsim values, that's why m1 == m2 => 1.0
         self.module_coding_fraction  = dict()
         self.module_internal_entropy = dict()
         self.phi                     = dict()
@@ -176,7 +176,7 @@ class MapSim():
                     # we append 0 to the starting address because we need to consider exiting that module
                     self.module_transition_rates[(m1, m2)] = self.cb.get_walk_rate((m1) + (0,), m2)
                 else:
-                    self.module_transition_rates[(m1, m2)] = 1.0
+                    self.module_transition_rates[(m1, m2)] = 1.0 # "similarity" of m1 and m2, here we put the value 1 because it's the neutral element for the logarithm
 
         for addr_m in self.non_empty_modules:
             m   = self.modules[addr_m]
@@ -193,7 +193,8 @@ class MapSim():
             for addr_m in self.non_empty_modules:
                 m   = self.modules[addr_m]
                 p_m = m["flow"] + m["exit"]
-                numerator += (self.module_coding_fraction[addr_m] - (p_u / p_m if addr_u[:-1] == addr_m else 0.0)) * self.module_transition_rates[addr_u[:-1], addr_m] if p_m > 0 else 1.0 # ToDo: is this correct?
+                #numerator += (self.module_coding_fraction[addr_m] - (p_u / p_m if addr_u[:-1] == addr_m else 0.0)) * self.module_transition_rates[addr_u[:-1], addr_m] if p_m > 0 else 1.0 # ToDo: is this correct?
+                numerator += self.module_coding_fraction[addr_m] * self.module_transition_rates[addr_u[:-1], addr_m]
             self.phi[addr_u] = p_u / numerator if numerator > 0 else 0
 
     def _prepare_sampling(self) -> None:
@@ -208,7 +209,7 @@ class MapSim():
                 if m1 != m2:
                     # we append 0 to the starting address because we need to consider exiting that module
                     self.module_transition_rates[(m1, m2)] = self.cb.get_walk_rate((m1) + (0,), m2)
-        
+
         # calculate the softmax normalisers
         self.softmax_normalisers = dict()
         the_nodes                = set(self.cb.get_nodes())
@@ -246,10 +247,10 @@ class MapSim():
         ----------
         G : Graph
             The graph that contains the links.
-        
+
         figsize : Tuple[float, float]
             The size of the figure.
-        
+
         num_spline_points : int
             The number of points to draw smooth splines between nodes.
         """
@@ -269,13 +270,13 @@ class MapSim():
         for address in self.addresses.values():
             for init in inits(address):
                 module_nodes.add(init)
-        
+
         # the flows for the module nodes
         module_node_to_flow = dict()
         for module_node in module_nodes:
             sub_codebook = self.cb.get_module(module_node)
             module_node_to_flow[module_node] = sub_codebook.flow
-        
+
         # the actual plotting...
         fig, ax = plt.subplots(1, 1, figsize = figsize)
 
@@ -505,7 +506,7 @@ class MapSim():
             res[link] += 1
 
         return res
-    
+
     def L(self, G : Maybe[Graph] = None, verbose : bool = False) -> float:
         """
         Calculate the codelength.
@@ -516,10 +517,10 @@ class MapSim():
             The graph for calculating transition rates.
             If no graph is given, transition rates are estimated based on
             the modular compression of flows.
-        
+
         verbose : bool
             Print info while calculating.
-        
+
         Returns
         -------
         float
@@ -566,10 +567,16 @@ class MapSim():
             for ix_v, v in enumerate(G.nodes):
                 if v in G.neighbors(u):
                     res[u] += - p_u * T[ix_u,ix_v] * log2(M.mapsim(u, v))
-        
+
         return res
 
-    def D_naive(self, other : MapSim, G : Maybe[Graph] = None, samples : Maybe[int] = None, sample_mode : str = "uniform", verbose : bool = False) -> float:
+    def D_naive( self
+               , other       : MapSim
+               , G           : Maybe[Graph] = None
+               , samples     : Maybe[int]   = None
+               , sample_mode : str          = "uniform"
+               , verbose     : bool         = False
+               ) -> float:
         Ma = self
         Mb = other
 
@@ -631,8 +638,11 @@ class MapSim():
                 for u, addr_u in Ma.addresses.items():
                     p_u = Ma.cb.get_flow(addr_u)
 
-                    r_u_a = Ma.predict_interaction_rates(u, include_self_links = False)
-                    r_u_b = Mb.predict_interaction_rates(u, include_self_links = False)
+                    # We need to include self-links here to stay true to the map equation.
+                    # Otherwise it means that we remember the current node, but we're only
+                    # allowed to remember the current module.
+                    r_u_a = Ma.predict_interaction_rates(u, include_self_links = True)
+                    r_u_b = Mb.predict_interaction_rates(u, include_self_links = True)
                     s_a   = sum(r_u_a.values())
 
                     for v in r_u_a.keys():
@@ -643,23 +653,29 @@ class MapSim():
                             print(f"{u}->{v} {p_u:.2f} * {r_u_a[v] / s_a:.2f} * log2({r_u_a[v]:.2f} / {r_u_b[v]:.2f}) = {c:.2f}")
 
         return np.round(res, decimals = 14)
-    
+
     def D_per_node_naive(self, other : MapSim, u = None, G : Maybe[Graph] = None, verbose : bool = False) -> float:
         Ma  = self
         Mb  = other
         res = 0
-        
+
         addr_u = Ma.addresses[u]
         p_u    = Ma.cb.get_flow(addr_u)
 
-        r_u_a = Ma.predict_interaction_rates(u, include_self_links = False)
-        r_u_b = Mb.predict_interaction_rates(u, include_self_links = False)
+        # We need to include self-links here to stay true to the map equation.
+        # Otherwise it means that we remember the current node, but we're only
+        # allowed to remember the current module.
+        r_u_a = Ma.predict_interaction_rates(u, include_self_links = True)
+        r_u_b = Mb.predict_interaction_rates(u, include_self_links = True)
         s_a   = sum(r_u_a.values())
 
         for v in r_u_a.keys():
             c = (p_u * (r_u_a[v] / s_a) * log2(r_u_a[v] / r_u_b[v])) if r_u_a[v] > 0 and r_u_b[v] > 0 else 0
             res += c
-        
+
+            if verbose:
+                print(f"{u}->{v} {p_u:.2f} * {r_u_a[v] / s_a:.2f} * log2({r_u_a[v]:.2f} / {r_u_b[v]:.2f}) = {c:.2f}")
+
         return np.round(res, decimals = 14)
 
     def D( self
@@ -674,13 +690,13 @@ class MapSim():
         ----------
         other: MapSim
             The other partition.
-        
+
         G: Maybe[Grah]
             The graph, ignored for now.
-        
+
         verbose: bool
             Ignored for now.
-        
+
         Returns
         -------
         float
@@ -739,7 +755,8 @@ class MapSim():
                     self_loop_correction_coding  = 0.0
                     self_loop_correction_entropy = 0.0
 
-                res += self.phi[addr_u] * t_um_a * ((self.module_coding_fraction[m_a] - self_loop_correction_coding) * log2(t_um_a) + (self.module_internal_entropy[m_a] - self_loop_correction_entropy))
+                # res += self.phi[addr_u] * t_um_a * ((self.module_coding_fraction[m_a] - self_loop_correction_coding) * log2(t_um_a) + (self.module_internal_entropy[m_a] - self_loop_correction_entropy))
+                res += self.phi[addr_u] * t_um_a * (self.module_coding_fraction[m_a] * log2(t_um_a) + self.module_internal_entropy[m_a])
 
                 for m_b in intersection_coding_fraction[m_a]:
                     addr_u_b = other.addresses[u]
@@ -751,9 +768,10 @@ class MapSim():
                         self_loop_correction_coding  = 0.0
                         self_loop_correction_entropy = 0.0
 
-                    res -= self.phi[addr_u] * t_um_a * ((intersection_coding_fraction[m_a][m_b] - self_loop_correction_coding) * log2(t_um_b) + (intersection_internal_entropies[m_a][m_b] - self_loop_correction_entropy))
+                    # res -= self.phi[addr_u] * t_um_a * ((intersection_coding_fraction[m_a][m_b] - self_loop_correction_coding) * log2(t_um_b) + (intersection_internal_entropies[m_a][m_b] - self_loop_correction_entropy))
+                    res -= self.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b])
 
-        return res
+        return np.round(res, decimals = 14)
 
     def D_per_node( self
                   , other   : MapSim
@@ -761,20 +779,65 @@ class MapSim():
                   , G       : Maybe[Graph] = None
                   , verbose : bool         = False
                   ) -> float:
-        return 0 # ToDo
+        raise Exception("Not implemented. Use D_per_node_naive for now.")
+
+    def JSD_naive( self
+                 , other   : MapSim
+                 , G       : Maybe[Graph] = None
+                 , verbose : bool         = False
+                 ) -> float:
+        A = self
+        B = other
+
+        res = 0.0
+        for u, addr_u in A.addresses.items():
+            p_u       = A.cb.get_flow(addr_u)
+            mapsims_a = { v:A.mapsim(u, v) for v in A.addresses.keys() }
+            mapsims_b = { v:B.mapsim(u, v) for v in B.addresses.keys() }
+
+            sum_a = sum(mapsims_a.values())
+            sum_b = sum(mapsims_b.values())
+
+            for v in A.addresses.keys():
+                a = (p_u * (mapsims_a[v] / sum_a) * log2(mapsims_a[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v])))
+                b = (p_u * (mapsims_b[v] / sum_b) * log2(mapsims_b[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v])))
+                res += 0.5 * (a + b)
+
+        return np.sqrt(res)
+
+        # class Mixture:
+        #     def __init__(self, A, B):
+        #         self.A = A
+        #         self.B = B
+
+        #     def predict_interaction_rates(self, u, include_self_links : bool = True) -> Dict[str, float]:
+        #         r_u_a = self.A.predict_interaction_rates(u, include_self_links = True)
+        #         r_u_b = self.B.predict_interaction_rates(u, include_self_links = True)
+        #         return { v : 1/2 * r_u_a[v] + 1/2 * r_u_b[v] for v in r_u_a.keys() }
+
+        # M = Mixture(A, B)
+
+        # return np.round(1/2 * A.D_naive(M) + 1/2 * B.D_naive(M), decimals = 14)
+
+
+class MapSimMixture(MapSim):
+    def __init__(self, A, B):
+        super().__init__()
+
+
 
 
 
 class OverlappingMapSim(MapSim):
     def __init__(self):
         super().__init__()
-    
+
     def from_treefile(self, filename: str) -> OverlappingMapSim:
         raise Exception("Cannot construct overlapping mapsim from tree file.")
-    
+
     def from_infomap(self, infomap: Infomap) -> OverlappingMapSim:
         raise Exception("Cannot construct overlapping mapsim from infomap.")
-    
+
     def from_soft_assignments(self, S, F, p, the_nodes):
         self.partition = PartitionFromSoftAssignmentMatrices(S = S, F = F, p = p, the_nodes = the_nodes)
         self.from_partition(partition = self.partition)
@@ -782,30 +845,95 @@ class OverlappingMapSim(MapSim):
 
     def predict_interaction_rates(self, node: str, include_self_links: bool = True) -> Dict[str, float]:
         source_addresses = self.get_address(node)
+        source_flow      = sum([self.cb.get_flow(source_address) for source_address in source_addresses])
 
         rates = dict()
 
-        for target_node, target_addresses in self.addresses.items():
-            if target_node != node or include_self_links:
-                target_node_total_rate = 0.0
-                for source_address in source_addresses:
+        # start at all parts of the source node
+        for source_address in source_addresses:
+            partial_source = self.cb.get_flow(source_address) / source_flow
+            for target_node, target_addresses in self.addresses.items():
+                if target_node != node or include_self_links:
+                    target_flow = sum([self.cb.get_flow(target_address) for target_address in target_addresses])
+                    rates[target_node] = 0
+                    # go to all parts of the target node
                     for target_address in target_addresses:
-                        target_node_total_rate += self.cb.get_walk_rate(source = source_address, target = target_address)
-                rates[target_node] = target_node_total_rate
+                        partial_target = self.cb.get_flow(target_address) / target_flow
+                        rates[target_node] += partial_source * partial_target * self.cb.get_walk_rate(source = source_address, target = target_address)
 
         return rates
 
-    def D_naive(self, other : MapSim, verbose : bool = False) -> float:
-        Ma = self
-        Mb = other
+    def L(self, G : Maybe[Graph] = None, verbose : bool = False) -> float:
+        """
+        Calculate the codelength.
 
+        Parameters
+        ----------
+        G: Maybe[Graph]
+            The graph for calculating transition rates.
+            If no graph is given, transition rates are estimated based on
+            the modular compression of flows.
+
+        verbose : bool
+            Print info while calculating.
+
+        Returns
+        -------
+        float
+            The codelength.
+        """
+        M   = self
         res = 0
 
-        for u, addrs_u in Ma.addresses.items():
-            p_u = sum([Ma.cb.get_flow(addr_u) for addr_u in addrs_u])
+        if G is not None:
+            T = _transition_matrix(G.to_directed()).toarray()
+            for ix_u, u in enumerate(G.nodes):
+                addrs_u = M.get_address(u)
+                for addr_u in addrs_u:
+                    # p_u = M.cb.get_flow(M.addresses[u])
+                    for ix_v, v in enumerate(G.nodes):
+                        addrs_v = M.get_address(v)
+                        for addr_v in addrs_v:
+                            p_u = M.cb.get_flow(addr_u)
+                            if v in G.neighbors(u):
+                                c    = - p_u * T[ix_u,ix_v] * log2(M.cb.get_walk_rate(addr_u, addr_v))
+                                res += c
 
-            r_u_a = Ma.predict_interaction_rates(u, include_self_links = False)
-            r_u_b = Mb.predict_interaction_rates(u, include_self_links = False)
+                                if verbose:
+                                    print(f"{u}->{v} - {p_u:.2f} * {T[ix_u,ix_v]:.2f} * log2({M.mapsim(u, v):.2f}) = {c:.2f}")
+
+        else:
+            for u, addrs_u in M.addresses.items():
+                for addr_u in addrs_u:
+                    p_u = M.cb.get_flow(addr_u)
+                    t_u = M.predict_interaction_rates(node = u, include_self_links = False)
+                    s   = sum(t_u.values())
+
+                    for v, t_uv in t_u.items():
+                        c    = - p_u * (t_uv / s) * log2(t_uv)
+                        res += c
+
+                        if verbose:
+                            print(f"{u}->{v} - {p_u:.2f} * {t_uv / s:.2f} * log2({t_uv:.2f}) = {c:.2f}")
+
+        return res
+
+    def D(self, other: MapSim, G: Graph | None = None, verbose: bool = False) -> float:
+        """
+        Use MapSim for efficient computations.
+        """
+        raise NotImplemented
+
+    def D_naive(self, other : MapSim, verbose : bool = False) -> float:
+        A   = self
+        B   = other
+        res = 0
+
+        for u, addrs_u in A.addresses.items():
+            p_u = sum([A.cb.get_flow(addr_u) for addr_u in addrs_u])
+
+            r_u_a = A.predict_interaction_rates(u, include_self_links = False)
+            r_u_b = B.predict_interaction_rates(u, include_self_links = False)
             s_a   = sum(r_u_a.values())
 
             for v in r_u_a.keys():
@@ -817,17 +945,44 @@ class OverlappingMapSim(MapSim):
 
         return np.round(res, decimals = 14)
 
+    def D_per_node(self, other: MapSim, u=None, G: Graph | None = None, verbose: bool = False) -> float:
+        """
+        Use MapSim for efficient computations.
+        """
+        raise NotImplemented
+
+    def D_per_node_naive(self, other : MapSim, u, verbose : bool = False) -> float:
+        Ma  = self
+        Mb  = other
+        res = 0
+
+        addrs_u = Ma.addresses[u]
+        p_u     = sum([Ma.cb.get_flow(addr_u) for addr_u in addrs_u])
+
+        r_u_a = Ma.predict_interaction_rates(u, include_self_links = False)
+        r_u_b = Mb.predict_interaction_rates(u, include_self_links = False)
+        s_a   = sum(r_u_a.values())
+
+        for v in r_u_a.keys():
+            c = (p_u * (r_u_a[v] / s_a) * log2(r_u_a[v] / r_u_b[v])) if r_u_a[v] > 0 and r_u_b[v] > 0 else 0
+            res += c
+
+            if verbose:
+                print(f"{u}->{v} {p_u:.2f} * {r_u_a[v] / s_a:.2f} * log2({r_u_a[v]:.2f} / {r_u_b[v]:.2f}) = {c:.2f}")
+
+        return np.round(res, decimals = 14)
+
 
 
 class MapSimSampler(MapSim):
     def __init__(self, G) -> None:
         super().__init__()
-        
+
         if G.is_directed():
             self.population = lambda u: G.out_degree(u)
         else:
             self.population = lambda u: G.degree(u)
-    
+
     def prepare_sampling(self, beta : float) -> None:
         self.beta = beta
         self.module_transition_rates = dict()
@@ -840,7 +995,7 @@ class MapSimSampler(MapSim):
                 if m1 != m2:
                     # we append 0 to the starting address because we need to consider exiting that module
                     self.module_transition_rates[(m1, m2)] = self.cb.get_walk_rate((m1) + (0,), m2)
-        
+
         # calculate the softmax normalisers
         self.softmax_normalisers = dict()
         the_nodes                = set(self.cb.get_nodes())
