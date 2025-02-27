@@ -674,7 +674,7 @@ class MapSim():
             res += c
 
             if verbose:
-                print(f"{u}->{v} {p_u:.2f} * {r_u_a[v] / s_a:.2f} * log2({r_u_a[v]:.2f} / {r_u_b[v]:.2f}) = {c:.2f}")
+                print(f"{u}->{v} {p_u:.4f} * {r_u_a[v] / s_a:.4f} * log2({r_u_a[v]:.4f} / {r_u_b[v]:.4f}) = {c:.4f}")
 
         return np.round(res, decimals = 14)
 
@@ -779,7 +779,70 @@ class MapSim():
                   , G       : Maybe[Graph] = None
                   , verbose : bool         = False
                   ) -> float:
-        raise Exception("Not implemented. Use D_per_node_naive for now.")
+        # remember the intersected modules in the other partition so we don't need to loop over irrelevant modules later
+        intersection_coding_fraction    = { m_a : dict() for m_a in self.non_empty_modules }
+        intersection_internal_entropies = { m_a : dict() for m_a in self.non_empty_modules }
+
+        # the intersected modules
+        intersection_modules = { m_a : dict() for m_a in self.non_empty_modules }
+
+        # for convenience, cache module rates for both partitions
+        p_m_a : Dict[Tuple[int,...], float] = dict()
+        p_m_b : Dict[Tuple[int,...], float] = dict()
+
+        # pre-compute intersections in a single linear pass over the nodes
+        # each node has a membership in this partition and in the other partition,
+        # which allows us computing intersections by considering each node only once.
+        for u, addr_u_a in self.addresses.items():
+            p_u      = self.modules[addr_u_a]["flow"]
+            addr_u_b = other.addresses[u]
+
+            m_a = addr_u_a[:-1]
+            m_b = addr_u_b[:-1]
+
+            if not m_a in p_m_a:
+                p_m_a[m_a] = self.modules[m_a]["flow"]  + self.modules[m_a]["exit"]
+            if not m_b in p_m_b:
+                p_m_b[m_b] = other.modules[m_b]["flow"] + other.modules[m_b]["exit"]
+
+            if m_b not in intersection_internal_entropies[m_a]:
+                intersection_internal_entropies[m_a][m_b] = 0
+            intersection_internal_entropies[m_a][m_b] += (p_u / p_m_a[m_a]) * log2(p_u / p_m_b[m_b])
+
+            if m_b not in intersection_coding_fraction[m_a]:
+                intersection_coding_fraction[m_a][m_b] = 0
+            intersection_coding_fraction[m_a][m_b] += p_u / p_m_a[m_a]
+
+            # also remember which nodes sit where
+            if m_b not in intersection_modules[m_a]:
+                intersection_modules[m_a][m_b] = set()
+            intersection_modules[m_a][m_b].add(u)
+
+        res = 0
+        addr_u = self.addresses[u]
+
+        p_u = self.modules[addr_u]["flow"]
+        for m_a in self.non_empty_modules:
+            t_um_a = self.module_transition_rates[(addr_u[:-1], m_a)]
+
+            c    = self.phi[addr_u] * t_um_a * (self.module_coding_fraction[m_a] * log2(t_um_a) + self.module_internal_entropy[m_a])
+            res += c
+
+            if verbose:
+                print(f"{m_a}  {self.phi[addr_u]:.2f} * {t_um_a:.2f} * ({self.module_coding_fraction[m_a]} * log2({t_um_a:.2f}) + {self.module_internal_entropy[m_a]:.2f}) = {c:.2f}")
+
+            for m_b in intersection_coding_fraction[m_a]:
+                addr_u_b = other.addresses[u]
+                t_um_b = other.module_transition_rates[(other.addresses[u][:-1], m_b)]
+
+                c    = self.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b])
+                res -= c
+
+                if verbose:
+                    print(f"{m_a}->{m_b} {self.phi[addr_u]:.2f} * {t_um_a:.2f} * ({intersection_coding_fraction[m_a][m_b]:.2f} * log2({t_um_b:.2f}) + {intersection_internal_entropies[m_a][m_b]:.2f}) = {c:.2f}")
+
+        return np.round(res, decimals = 14)
+
 
     def JSD_naive( self
                  , other   : MapSim
