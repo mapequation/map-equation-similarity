@@ -138,10 +138,7 @@ class CodeBook:
             X += ["exit"]
             P += [self.exit]
 
-        if len(X) > 1:
-            self.code_words = mkHuffmanCode(X = X, P = P)
-        else:
-            self.code_words = dict()
+        self.code_words = mkHuffmanCode(X = X, P = P)
 
         for cb in self.code_book.values():
             cb.mk_codewords()
