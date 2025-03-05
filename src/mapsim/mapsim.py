@@ -181,11 +181,11 @@ class MapSim():
         for addr_m in self.non_empty_modules:
             m   = self.modules[addr_m]
             p_m = m["flow"] + m["exit"]
-            self.module_coding_fraction[addr_m]  = 1.0 - m["exit"] / p_m if p_m > 0 else 1.0 # ToDo: is this correct?
+            self.module_coding_fraction[addr_m]  = (1.0 - m["exit"] / p_m) if p_m > 0 else 1.0 # ToDo: is this correct?
             self.module_internal_entropy[addr_m] = 0.0
             for addr_u in self.non_empty_modules[addr_m]:
                 u = self.modules[addr_u]
-                self.module_internal_entropy[addr_m] += (u["flow"] / p_m) * log2(u["flow"] / p_m) if p_m > 0 else 0 # ToDo: is this correct?
+                self.module_internal_entropy[addr_m] += ((u["flow"] / p_m) * log2(u["flow"] / p_m)) if p_m > 0 else 0.0 # ToDo: is this correct?
 
         for addr_u in self.addresses.values():
             numerator = 0
@@ -862,8 +862,8 @@ class MapSim():
             sum_b = sum(mapsims_b.values())
 
             for v in A.addresses.keys():
-                a = (p_u * (mapsims_a[v] / sum_a) * log2(mapsims_a[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v])))
-                b = (p_u * (mapsims_b[v] / sum_b) * log2(mapsims_b[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v])))
+                a = (p_u * (mapsims_a[v] / sum_a) * log2(mapsims_a[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v]))) if mapsims_a[v] > 0 else 0.0
+                b = (p_u * (mapsims_b[v] / sum_b) * log2(mapsims_b[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v]))) if mapsims_b[v] > 0 else 0.0
                 res += 0.5 * (a + b)
 
         return np.sqrt(res)
