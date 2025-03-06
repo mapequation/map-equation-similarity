@@ -884,6 +884,55 @@ class MapSim():
 
         # return np.round(1/2 * A.D_naive(M) + 1/2 * B.D_naive(M), decimals = 14)
 
+    def JSD( self
+           , other : MapSim
+           ) -> float:
+        A = self
+        B = other
+
+        ( p_m_a
+        , p_m_b
+        , intersection_modules
+        , intersection_coding_fraction
+        , intersection_internal_entropies
+        ) = self._precompute_intersection(other = B)
+
+        res_A_M : float = 0.0
+        res_B_M : float = 0.0
+
+        # We compute the result in three steps
+        # d_F(A,B) = sqrt(1/2 * D_F(A||M) + 1/2 * D_F(B||M))
+
+        # Part for A
+        for u, addr_u_A in A.addresses.items():
+            for m_a in A.non_empty_modules:
+                t_um_a   = A.module_transition_rates[(addr_u_A[:-1], m_a)]
+                res_A_M += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
+
+        # Part for B
+        for u, addr_u_B in B.addresses.items():
+            for m_b in B.non_empty_modules:
+                t_um_b   = B.module_transition_rates[(addr_u_B[:-1], m_b)]
+                res_B_M += B.phi[addr_u_B] * t_um_b * (B.module_coding_fraction[m_b] * log2(t_um_b) + B.module_internal_entropy[m_b])
+
+        # Part for A and B
+        # unfortunately, this part is not nefficient (yet)
+        for u, addr_u_A in A.addresses.items():
+            for m_a in A.non_empty_modules:
+                t_um_a = A.module_transition_rates[(addr_u_A[:-1], m_a)]
+                for m_b in intersection_coding_fraction[m_a]:
+                    addr_u_B = B.addresses[u]
+                    t_um_b   = B.module_transition_rates[(addr_u_B[:-1], m_b)]
+                    for v in intersection_modules[m_a][m_b]:
+                        p_v_A = A.modules[A.addresses[v]]["flow"]
+                        p_v_B = B.modules[B.addresses[v]]["flow"]
+                        cross = 0.5 * t_um_a * p_v_A / p_m_a[m_a] \
+                              + 0.5 * t_um_b * p_v_B / p_m_b[m_b]
+                        res_A_M -= A.phi[addr_u_A] * t_um_a * (p_v_A * log2(cross))
+                        res_B_M -= B.phi[addr_u_B] * t_um_b * (p_v_B * log2(cross))
+
+        return np.sqrt(0.5 * res_A_M + 0.5 * res_B_M)
+
 
 class MapSimMixture(MapSim):
     def __init__(self, A, B):
