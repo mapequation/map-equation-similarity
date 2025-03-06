@@ -9,7 +9,7 @@ from matplotlib.path                      import Path
 from networkx.linalg.laplacianmatrix      import _transition_matrix
 from numpy                                import log2, inf as infinity
 from numpy.random                         import choice
-from typing                               import Dict, Optional as Maybe, Set, Tuple
+from typing                               import Any, Dict, Optional as Maybe, Set, Tuple
 # -----------------------------------------------------------------------------
 from .codebook                            import CodeBook
 from .io.reader                           import *
@@ -176,24 +176,24 @@ class MapSim():
                     # we append 0 to the starting address because we need to consider exiting that module
                     self.module_transition_rates[(m1, m2)] = self.cb.get_walk_rate((m1) + (0,), m2)
                 else:
-                    self.module_transition_rates[(m1, m2)] = 1.0 # "similarity" of m1 and m2, here we put the value 1 because it's the neutral element for the logarithm
+                    # "similarity" of m1 and m2, here we put the value 1 because it's the neutral element for the logarithm
+                    self.module_transition_rates[(m1, m2)] = 1.0
 
         for addr_m in self.non_empty_modules:
             m   = self.modules[addr_m]
             p_m = m["flow"] + m["exit"]
-            self.module_coding_fraction[addr_m]  = (1.0 - m["exit"] / p_m) if p_m > 0 else 1.0 # ToDo: is this correct?
+            self.module_coding_fraction[addr_m]  = (1.0 - m["exit"] / p_m) if p_m > 0 else 1.0
             self.module_internal_entropy[addr_m] = 0.0
             for addr_u in self.non_empty_modules[addr_m]:
                 u = self.modules[addr_u]
-                self.module_internal_entropy[addr_m] += ((u["flow"] / p_m) * log2(u["flow"] / p_m)) if p_m > 0 else 0.0 # ToDo: is this correct?
+                self.module_internal_entropy[addr_m] += ((u["flow"] / p_m) * log2(u["flow"] / p_m)) if p_m > 0 else 0.0
 
         for addr_u in self.addresses.values():
             numerator = 0
-            p_u = self.modules[addr_u]["flow"]
+            p_u       = self.modules[addr_u]["flow"]
             for addr_m in self.non_empty_modules:
-                m   = self.modules[addr_m]
-                p_m = m["flow"] + m["exit"]
-                #numerator += (self.module_coding_fraction[addr_m] - (p_u / p_m if addr_u[:-1] == addr_m else 0.0)) * self.module_transition_rates[addr_u[:-1], addr_m] if p_m > 0 else 1.0 # ToDo: is this correct?
+                # m          = self.modules[addr_m]
+                # p_m        = m["flow"] + m["exit"]
                 numerator += self.module_coding_fraction[addr_m] * self.module_transition_rates[addr_u[:-1], addr_m]
             self.phi[addr_u] = p_u / numerator if numerator > 0 else 0
 
@@ -654,19 +654,45 @@ class MapSim():
 
         return np.round(res, decimals = 14)
 
-    def D_per_node_naive(self, other : MapSim, u = None, G : Maybe[Graph] = None, verbose : bool = False) -> float:
-        Ma  = self
-        Mb  = other
+
+    def D_per_node_naive( self
+                        , other   : MapSim
+                        , u       : Any
+                        , verbose : bool   = False
+                        ) -> float:
+        """
+        Compute the flow divergence contribution for a single node in a naive way.
+        We simply loop over all target nodes to sum up the contribution from the
+        source node to all target nodes.
+
+        Parameters
+        ----------
+        other: MapSim
+            The other partition.
+
+        u: Any
+            The source node.
+
+        verbose: bool = False
+            Whether to be chatty.
+
+        Returns
+        -------
+        float
+            The flow divergence contribution for node u.
+        """
+        A   = self
+        B   = other
         res = 0
 
-        addr_u = Ma.addresses[u]
-        p_u    = Ma.cb.get_flow(addr_u)
+        addr_u = A.addresses[u]
+        p_u    = A.cb.get_flow(addr_u)
 
         # We need to include self-links here to stay true to the map equation.
         # Otherwise it means that we remember the current node, but we're only
         # allowed to remember the current module.
-        r_u_a = Ma.predict_interaction_rates(u, include_self_links = True)
-        r_u_b = Mb.predict_interaction_rates(u, include_self_links = True)
+        r_u_a = A.predict_interaction_rates(u, include_self_links = True)
+        r_u_b = B.predict_interaction_rates(u, include_self_links = True)
         s_a   = sum(r_u_a.values())
 
         for v in r_u_a.keys():
@@ -678,21 +704,17 @@ class MapSim():
 
         return np.round(res, decimals = 14)
 
+
     def D( self
-         , other   : MapSim
-         , G       : Maybe[Graph] = None
-         , verbose : bool         = False
+         , other : MapSim
          ) -> float:
         """
-        Compute the flow divergence between this partition and the other one.
+        Compute the flow divergence between this partition and the other one efficiently.
 
         Parameters
         ----------
         other: MapSim
             The other partition.
-
-        G: Maybe[Grah]
-            The graph, ignored for now.
 
         verbose: bool
             Ignored for now.
@@ -702,13 +724,16 @@ class MapSim():
         float
             The flow divergence between this and the other partition.
         """
+        # for notational consistency with the paper
+        A = self
+        B = other
 
         # remember the intersected modules in the other partition so we don't need to loop over irrelevant modules later
         intersection_coding_fraction    = { m_a : dict() for m_a in self.non_empty_modules }
         intersection_internal_entropies = { m_a : dict() for m_a in self.non_empty_modules }
 
         # the intersected modules
-        intersection_modules = { m_a : dict() for m_a in self.non_empty_modules }
+        intersection_modules = { m_a : dict() for m_a in A.non_empty_modules }
 
         # for convenience, cache module rates for both partitions
         p_m_a : Dict[Tuple[int,...], float] = dict()
@@ -718,20 +743,21 @@ class MapSim():
         # each node has a membership in this partition and in the other partition,
         # which allows us computing intersections by considering each node only once.
         for u, addr_u_a in self.addresses.items():
-            p_u      = self.modules[addr_u_a]["flow"]
-            addr_u_b = other.addresses[u]
+            p_u      = A.modules[addr_u_a]["flow"]
+            addr_u_b = B.addresses[u]
+            p_u_B    = B.modules[addr_u_b]["flow"] # for compatibility with different topologies
 
             m_a = addr_u_a[:-1]
             m_b = addr_u_b[:-1]
 
             if not m_a in p_m_a:
-                p_m_a[m_a] = self.modules[m_a]["flow"]  + self.modules[m_a]["exit"]
+                p_m_a[m_a] = A.modules[m_a]["flow"] + A.modules[m_a]["exit"]
             if not m_b in p_m_b:
-                p_m_b[m_b] = other.modules[m_b]["flow"] + other.modules[m_b]["exit"]
+                p_m_b[m_b] = B.modules[m_b]["flow"] + B.modules[m_b]["exit"]
 
             if m_b not in intersection_internal_entropies[m_a]:
                 intersection_internal_entropies[m_a][m_b] = 0
-            intersection_internal_entropies[m_a][m_b] += (p_u / p_m_a[m_a]) * log2(p_u / p_m_b[m_b])
+            intersection_internal_entropies[m_a][m_b] += (p_u / p_m_a[m_a]) * log2(p_u_B / p_m_b[m_b])
 
             if m_b not in intersection_coding_fraction[m_a]:
                 intersection_coding_fraction[m_a][m_b] = 0
@@ -744,47 +770,53 @@ class MapSim():
 
         res = 0
 
-        for u, addr_u in self.addresses.items():
-            p_u = self.modules[addr_u]["flow"]
-            for m_a in self.non_empty_modules:
-                t_um_a = self.module_transition_rates[(addr_u[:-1], m_a)]
-                if addr_u[:-1] == m_a:
-                    self_loop_correction_coding  = p_u / p_m_a[m_a]
-                    self_loop_correction_entropy = (p_u / p_m_a[m_a]) * log2(p_u / p_m_a[m_a])
-                else:
-                    self_loop_correction_coding  = 0.0
-                    self_loop_correction_entropy = 0.0
+        for u, addr_u in A.addresses.items():
+            p_u = A.modules[addr_u]["flow"]
+            for m_a in A.non_empty_modules:
+                t_um_a = A.module_transition_rates[(addr_u[:-1], m_a)]
 
-                # res += self.phi[addr_u] * t_um_a * ((self.module_coding_fraction[m_a] - self_loop_correction_coding) * log2(t_um_a) + (self.module_internal_entropy[m_a] - self_loop_correction_entropy))
-                res += self.phi[addr_u] * t_um_a * (self.module_coding_fraction[m_a] * log2(t_um_a) + self.module_internal_entropy[m_a])
+                res += A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
 
                 for m_b in intersection_coding_fraction[m_a]:
-                    addr_u_b = other.addresses[u]
-                    t_um_b = other.module_transition_rates[(other.addresses[u][:-1], m_b)]
-                    if u in intersection_modules[m_a][m_b]:
-                        self_loop_correction_coding  = p_u / p_m_a[m_a]
-                        self_loop_correction_entropy = (p_u / p_m_a[m_a]) * log2(p_u / p_m_b[m_b])
-                    else:
-                        self_loop_correction_coding  = 0.0
-                        self_loop_correction_entropy = 0.0
+                    addr_u_b = B.addresses[u]
+                    t_um_b = B.module_transition_rates[(B.addresses[u][:-1], m_b)]
 
-                    # res -= self.phi[addr_u] * t_um_a * ((intersection_coding_fraction[m_a][m_b] - self_loop_correction_coding) * log2(t_um_b) + (intersection_internal_entropies[m_a][m_b] - self_loop_correction_entropy))
                     res -= self.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b])
 
-        return np.round(res, decimals = 14)
+        return res
+
 
     def D_per_node( self
                   , other   : MapSim
-                  , u                      = None
-                  , G       : Maybe[Graph] = None
-                  , verbose : bool         = False
+                  , u       : Any
+                  , verbose : bool   = False
                   ) -> float:
+        """
+        Compute the flow divergence contribution for a single node efficiently.
+
+        Parameters
+        ----------
+        other: MapSim
+            The other partition.
+
+        u: Any
+            The source node.
+
+        Returns
+        -------
+        float
+            The flow divergence contribution for node u.
+        """
+        # for notational consistency with the paper
+        A = self
+        B = other
+
         # remember the intersected modules in the other partition so we don't need to loop over irrelevant modules later
-        intersection_coding_fraction    = { m_a : dict() for m_a in self.non_empty_modules }
-        intersection_internal_entropies = { m_a : dict() for m_a in self.non_empty_modules }
+        intersection_coding_fraction    = { m_a : dict() for m_a in A.non_empty_modules }
+        intersection_internal_entropies = { m_a : dict() for m_a in A.non_empty_modules }
 
         # the intersected modules
-        intersection_modules = { m_a : dict() for m_a in self.non_empty_modules }
+        intersection_modules = { m_a : dict() for m_a in A.non_empty_modules }
 
         # for convenience, cache module rates for both partitions
         p_m_a : Dict[Tuple[int,...], float] = dict()
@@ -793,21 +825,22 @@ class MapSim():
         # pre-compute intersections in a single linear pass over the nodes
         # each node has a membership in this partition and in the other partition,
         # which allows us computing intersections by considering each node only once.
-        for u, addr_u_a in self.addresses.items():
-            p_u      = self.modules[addr_u_a]["flow"]
-            addr_u_b = other.addresses[u]
+        for u_, addr_u_a in A.addresses.items():
+            p_u      = A.modules[addr_u_a]["flow"]
+            addr_u_b = B.addresses[u_]
+            p_u_B    = B.modules[addr_u_b]["flow"]
 
             m_a = addr_u_a[:-1]
             m_b = addr_u_b[:-1]
 
             if not m_a in p_m_a:
-                p_m_a[m_a] = self.modules[m_a]["flow"]  + self.modules[m_a]["exit"]
+                p_m_a[m_a] = A.modules[m_a]["flow"] + A.modules[m_a]["exit"]
             if not m_b in p_m_b:
-                p_m_b[m_b] = other.modules[m_b]["flow"] + other.modules[m_b]["exit"]
+                p_m_b[m_b] = B.modules[m_b]["flow"] + B.modules[m_b]["exit"]
 
             if m_b not in intersection_internal_entropies[m_a]:
                 intersection_internal_entropies[m_a][m_b] = 0
-            intersection_internal_entropies[m_a][m_b] += (p_u / p_m_a[m_a]) * log2(p_u / p_m_b[m_b])
+            intersection_internal_entropies[m_a][m_b] += (p_u / p_m_a[m_a]) * log2(p_u_B / p_m_b[m_b])
 
             if m_b not in intersection_coding_fraction[m_a]:
                 intersection_coding_fraction[m_a][m_b] = 0
@@ -816,32 +849,21 @@ class MapSim():
             # also remember which nodes sit where
             if m_b not in intersection_modules[m_a]:
                 intersection_modules[m_a][m_b] = set()
-            intersection_modules[m_a][m_b].add(u)
+            intersection_modules[m_a][m_b].add(u_)
 
-        res = 0
-        addr_u = self.addresses[u]
+        res    = 0
+        addr_u = A.addresses[u]
 
-        p_u = self.modules[addr_u]["flow"]
-        for m_a in self.non_empty_modules:
-            t_um_a = self.module_transition_rates[(addr_u[:-1], m_a)]
-
-            c    = self.phi[addr_u] * t_um_a * (self.module_coding_fraction[m_a] * log2(t_um_a) + self.module_internal_entropy[m_a])
-            res += c
-
-            if verbose:
-                print(f"{m_a}  {self.phi[addr_u]:.2f} * {t_um_a:.2f} * ({self.module_coding_fraction[m_a]} * log2({t_um_a:.2f}) + {self.module_internal_entropy[m_a]:.2f}) = {c:.2f}")
+        for m_a in A.non_empty_modules:
+            t_um_a = A.module_transition_rates[(addr_u[:-1], m_a)]
+            res   += A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
 
             for m_b in intersection_coding_fraction[m_a]:
-                addr_u_b = other.addresses[u]
-                t_um_b = other.module_transition_rates[(other.addresses[u][:-1], m_b)]
+                addr_u_b = B.addresses[u]
+                t_um_b   = B.module_transition_rates[(B.addresses[u][:-1], m_b)]
+                res     -= A.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b])
 
-                c    = self.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b])
-                res -= c
-
-                if verbose:
-                    print(f"{m_a}->{m_b} {self.phi[addr_u]:.2f} * {t_um_a:.2f} * ({intersection_coding_fraction[m_a][m_b]:.2f} * log2({t_um_b:.2f}) + {intersection_internal_entropies[m_a][m_b]:.2f}) = {c:.2f}")
-
-        return np.round(res, decimals = 14)
+        return res
 
 
     def JSD_naive( self
@@ -886,9 +908,6 @@ class MapSim():
 class MapSimMixture(MapSim):
     def __init__(self, A, B):
         super().__init__()
-
-
-
 
 
 class OverlappingMapSim(MapSim):
