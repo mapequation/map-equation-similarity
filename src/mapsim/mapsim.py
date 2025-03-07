@@ -796,7 +796,7 @@ class MapSim():
 
                 for m_b in intersection_coding_fraction[m_a]:
                     t_um_b = B.module_transition_rates[(B.addresses[u][:-1], m_b)]
-                    res   -= self.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b])
+                    res   -= A.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b])
 
         return res
 
@@ -884,9 +884,7 @@ class MapSim():
 
         # return np.round(1/2 * A.D_naive(M) + 1/2 * B.D_naive(M), decimals = 14)
 
-    def JSD( self
-           , other : MapSim
-           ) -> float:
+    def JSD(self, other : MapSim) -> float:
         A = self
         B = other
 
@@ -899,6 +897,7 @@ class MapSim():
 
         res_A_M : float = 0.0
         res_B_M : float = 0.0
+        res_M   : float = 0.0
 
         # We compute the result in three steps
         # d_F(A,B) = sqrt(1/2 * D_F(A||M) + 1/2 * D_F(B||M))
@@ -918,18 +917,40 @@ class MapSim():
         # Part for A and B
         # unfortunately, this part is not nefficient (yet)
         for u, addr_u_A in A.addresses.items():
+            addr_u_B = B.addresses[u]
+            phi_A    = A.phi[addr_u_A]
+            phi_B    = B.phi[addr_u_B]
+
             for m_a in A.non_empty_modules:
-                t_um_a = A.module_transition_rates[(addr_u_A[:-1], m_a)]
+                t_um_a    = A.module_transition_rates[(addr_u_A[:-1], m_a)]
+
                 for m_b in intersection_coding_fraction[m_a]:
-                    addr_u_B = B.addresses[u]
-                    t_um_b   = B.module_transition_rates[(addr_u_B[:-1], m_b)]
-                    for v in intersection_modules[m_a][m_b]:
-                        p_v_A = A.modules[A.addresses[v]]["flow"]
-                        p_v_B = B.modules[B.addresses[v]]["flow"]
-                        cross = 0.5 * t_um_a * p_v_A / p_m_a[m_a] \
-                              + 0.5 * t_um_b * p_v_B / p_m_b[m_b]
-                        res_A_M -= A.phi[addr_u_A] * t_um_a * (p_v_A * log2(cross))
-                        res_B_M -= B.phi[addr_u_B] * t_um_b * (p_v_B * log2(cross))
+                    t_um_b    = B.module_transition_rates[(addr_u_B[:-1], m_b)]
+
+                    # Get all nodes in the intersection as a NumPy array
+                    v_list = np.array(list(intersection_modules[m_a][m_b]))
+
+                    if v_list.shape[0] > 0:
+                        # Vectorized access to module "flow" values
+                        p_v_A = np.array([A.modules[A.addresses[v]]["flow"] for v in v_list])
+                        p_v_B = np.array([B.modules[B.addresses[v]]["flow"] for v in v_list])
+
+                        # Compute cross probabilities as a NumPy array
+                        cross     = 0.5 * t_um_a * p_v_A / p_m_a[m_a] + 0.5 * t_um_b * p_v_B / p_m_b[m_b]
+                        log_cross = np.log2(cross)  # Vectorized log computation
+
+                        # Compute vectorized results
+                        res_A_M -= np.sum(phi_A * t_um_a * p_v_A / p_m_a[m_a] * log_cross)
+                        res_B_M -= np.sum(phi_B * t_um_b * p_v_B / p_m_b[m_b] * log_cross)
+
+                        # for v in intersection_modules[m_a][m_b]:
+                        #     p_v_A = A.modules[A.addresses[v]]["flow"]
+                        #     p_v_B = B.modules[B.addresses[v]]["flow"]
+                        #     cross = log2 (0.5 * t_um_a * p_v_A / p_m_a[m_a]
+                        #                 + 0.5 * t_um_b * p_v_B / p_m_b[m_b]
+                        #                 )
+                        #     res_A_M -= phi_u_A * t_um_a * p_v_A / p_m_a[m_a] * cross
+                        #     res_B_M -= phi_u_B * t_um_b * p_v_B / p_m_b[m_b] * cross
 
         return np.sqrt(0.5 * res_A_M + 0.5 * res_B_M)
 
