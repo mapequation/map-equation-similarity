@@ -289,8 +289,13 @@ class MapSim():
         normaliser = self.softmax_normalisers[path_u[:-1]] - self.cb.get_module(path_u[:-1]).get_path_rate_forward(path_u[-1:])
         return d_uv / normaliser
 
-    def mapsim(self, u: str, v : str) -> float:
+    def mapsim(self, u : str, v : str) -> float:
         return self.cb.get_walk_rate(self.addresses[u], self.addresses[v])
+
+    def mapsim2(self, u : str, v : str) -> float:
+        addr_u = self.addresses[u]
+        addr_v = self.addresses[v]
+        return self.module_transition_rates[(addr_u[:-1], addr_v[:-1])] * self.modules[addr_v]["flow"] / self.modules[addr_v]["flow"]
 
 
     def plot_hierarchy(self, G : Graph, figsize : Tuple[float, float] = (5,5), num_spline_points : int = 10, hide_links = False, link_alpha = 0.5) -> None:
