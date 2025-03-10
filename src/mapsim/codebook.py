@@ -1,4 +1,5 @@
 from __future__  import annotations
+from collections import defaultdict
 from dataclasses import dataclass, field
 from heapq       import heappush, heappop
 from numpy       import log2, inf
@@ -85,6 +86,7 @@ class CodeBook:
         self.enter      : float               = 0.0
         self.exit       : float               = 0.0
         self.normaliser : float               = 0.0
+        self.code_words : Dict[Any, str]      = defaultdict(str)
 
 
     def __repr__(self) -> str:
