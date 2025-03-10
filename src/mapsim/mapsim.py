@@ -30,16 +30,38 @@ class MapSim():
         Initialise.
         """
 
+
     def from_treefile( self
-                     , filename : str
+                     , filename           : str
+                     , generate_codewords : bool = False
                      ) -> MapSim:
+        """
+        Construct codebooks from an Infomap treefile.
+
+        Parameters
+        ----------
+        filename : str
+            Path to the treefile.
+
+        generate_codewords : bool = False
+            Whether to generate codewords.
+
+        Returns
+        -------
+        MapSim
+            The creates MapSim instance.
+        """
         partition      : PartitionFromTreeFile                                    = PartitionFromTreeFile(treefile = filename)
         self.modules   : Dict[Tuple[int, ...], Dict[str, Union[Set[int], float]]] = partition.get_modules()
         self.addresses : Dict[str, Tuple[int, ...]]                               = partition.get_paths()
-        self._build_codebooks()
+        self._build_codebooks(generate_codewords = generate_codewords)
         return self
 
-    def from_infomap(self, infomap: Infomap) -> MapSim:
+
+    def from_infomap( self
+                    , infomap            : Infomap
+                    , generate_codewords : bool = False
+                    ) -> MapSim:
         """
         Construct codebooks from the supplied infomap instance.
 
@@ -47,11 +69,19 @@ class MapSim():
         ----------
         infomap: Infomap
             The infomap instance.
+
+        generate_codewords : bool = False
+            Whether to generate codewords.
+
+        Returns
+        -------
+        MapSim
+            The creates MapSim instance.
         """
         partition      : PartitionFromInfomap                                     = PartitionFromInfomap(infomap)
         self.modules   : Dict[Tuple[int, ...], Dict[str, Union[Set[int], float]]] = partition.get_modules()
         self.addresses : Dict[str, Tuple[int, ...]]                               = partition.get_paths()
-        self._build_codebooks()
+        self._build_codebooks(generate_codewords = generate_codewords)
 
         # for making predictions later
         self.node_IDs_to_labels : Dict[int, str] = infomap.names
@@ -64,10 +94,30 @@ class MapSim():
 
         return self
 
-    def from_partition(self, partition: Partition) -> MapSim:
+
+    def from_partition( self
+                      , partition          : Partition
+                      , generate_codewords : bool = False
+                      ) -> MapSim:
+        """
+        Construct codebooks from the supplied partition.
+
+        Parameters
+        ----------
+        partition : Partition
+            The partition.
+
+        generate_codewords : bool = False
+            Whether to generate codewords.
+
+        Returns
+        -------
+        MapSim
+            The creates MapSim instance.
+        """
         self.modules   = partition.get_modules()
         self.addresses = partition.get_paths()
-        self._build_codebooks()
+        self._build_codebooks(generate_codewords = generate_codewords)
         return self
 
     def run_infomap( self
@@ -78,6 +128,7 @@ class MapSim():
                    , seed                      : int  = 42
                    , one_level                 : bool = False
                    , rawdir                    : bool = False
+                   , generate_codewords        : bool = False
                    ) -> MapSim:
         """
         Run infomap on the supplied network file and use the partition it finds.
@@ -104,6 +155,14 @@ class MapSim():
 
         rawdir : bool = False
             Whether to use `-f rawdir` option.
+
+        generate_codewords : bool = False
+            Whether to generate codewords.
+
+        Returns
+        -------
+        MapSim
+            The creates MapSim instance.
         """
 
         # run infomap
@@ -126,7 +185,7 @@ class MapSim():
         partition      = PartitionFromInfomap(self.infomap, mapping = None, netfile = netfile)
         self.modules   = partition.get_modules()
         self.addresses = partition.get_paths()
-        self._build_codebooks()
+        self._build_codebooks(generate_codewords = generate_codewords)
 
         # for making predictions later
         self.node_IDs_to_labels : Dict[int, str] = self.infomap.names
@@ -139,9 +198,17 @@ class MapSim():
 
         return self
 
-    def _build_codebooks(self) -> None:
+
+    def _build_codebooks( self
+                        , generate_codewords : bool
+                        ) -> None:
         """
         Private method for populating the codebooks after loading data.
+
+        Parameters
+        ----------
+        generate_codewords : bool
+            Whether to assign concrete codewords in the codebooks.
         """
         # create the codebook and insert all paths
         self.cb : CodeBook = CodeBook()
@@ -154,9 +221,17 @@ class MapSim():
                                )
         self.cb.calculate_normalisers()
         self.cb.calculate_costs()
-        self.cb.mk_codewords()
+
+        # Assigning codewords is technically just a gimmick, 
+        # we don't _need_ them but can create them if we _want_ them.
+        if generate_codewords:
+            self.cb.mk_codewords()
+
 
     def _precompute_flow_divergence(self) -> None:
+        """
+        Precompute terms for efficiently computing flow divergence.
+        """
         self.module_transition_rates = dict() # ToDo: they are not module transition rates but mapsim values, that's why m1 == m2 => 1.0
         self.module_coding_fraction  = dict()
         self.module_internal_entropy = dict()
@@ -192,13 +267,26 @@ class MapSim():
             numerator = 0
             p_u       = self.modules[addr_u]["flow"]
             for addr_m in self.non_empty_modules:
-                # m          = self.modules[addr_m]
-                # p_m        = m["flow"] + m["exit"]
                 numerator += self.module_coding_fraction[addr_m] * self.module_transition_rates[addr_u[:-1], addr_m]
             self.phi[addr_u] = p_u / numerator if numerator > 0 else 0
 
 
-    def _precompute_intersection(self, other: MapSim) -> Tuple[Dict, Dict, Dict, Dict, Dict]:
+    def _precompute_intersection( self
+                                , other : MapSim
+                                ) -> Tuple[Dict, Dict, Dict, Dict, Dict]: # ToDo: more specific return type
+        """
+        Compute intersections between partitions for efficient flow divergence computation.
+
+        Parameters
+        ----------
+        other : MapSim
+            The other partition.
+
+        Returns
+        -------
+        Tuple[Dict, Dict, Dict, Dict, Dict]
+            The precomputed terms.
+        """
         # for notational consistency with the paper
         A = self
         B = other
@@ -243,15 +331,18 @@ class MapSim():
                 intersection_modules[m_a][m_b] = set()
             intersection_modules[m_a][m_b].add(u)
 
-        return ( p_m_a
-               , p_m_b
-               , intersection_modules
-               , intersection_coding_fraction
-               , intersection_internal_entropies
+        return ( p_m_a                            # module flows in partition A
+               , p_m_b                            # module flows in partition B
+               , intersection_modules             # intersections of modules between A and B
+               , intersection_coding_fraction     # coding fractions in the intersected modules
+               , intersection_internal_entropies  # internal entropies in the intersected modules
                )
 
 
     def _prepare_sampling(self) -> None:
+        """
+        Precompute terms for generating a network from the partition.
+        """
         self.module_transition_rates = dict()
         self.softmax_normalisers     = dict()
 
@@ -280,25 +371,44 @@ class MapSim():
                     self.softmax_normalisers[path] += self.module_transition_rates[(path, path_v[:-1])] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])
 
     def get_probability(self, u, v) -> float:
-        path_u     = self.addresses[u]
-        path_v     = self.addresses[v]
+        """
+        Get the probabilits for transitions from u to v.
+        """
+        path_u = self.addresses[u]
+        path_v = self.addresses[v]
+
         if path_u[:-1] == path_v[:-1]:
             d_uv = self.cb.get_walk_rate(path_u, path_v)
         else:
             d_uv = self.module_transition_rates[(path_u[:-1], path_v[:-1])] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])
+
         normaliser = self.softmax_normalisers[path_u[:-1]] - self.cb.get_module(path_u[:-1]).get_path_rate_forward(path_u[-1:])
         return d_uv / normaliser
 
+
     def mapsim(self, u : str, v : str) -> float:
+        """
+        MapSim from u to v.
+        """
         return self.cb.get_walk_rate(self.addresses[u], self.addresses[v])
 
+
     def mapsim2(self, u : str, v : str) -> float:
+        """
+        MapSim from u to v. More efficient in deep hierarchies.
+        """
         addr_u = self.addresses[u]
         addr_v = self.addresses[v]
         return self.module_transition_rates[(addr_u[:-1], addr_v[:-1])] * self.modules[addr_v]["flow"] / self.modules[addr_v]["flow"]
 
 
-    def plot_hierarchy(self, G : Graph, figsize : Tuple[float, float] = (5,5), num_spline_points : int = 10, hide_links = False, link_alpha = 0.5) -> None:
+    def plot_hierarchy( self
+                      , G                 : Graph
+                      , figsize           : Tuple[float, float] = (5,5)
+                      , num_spline_points : int                 = 10
+                      , hide_links        : bool                = False
+                      , link_alpha        : float               = 0.5
+                      ) -> None:
         """
         Plot the partition's hierarchical organisation in a circular plot.
 
@@ -312,6 +422,12 @@ class MapSim():
 
         num_spline_points : int
             The number of points to draw smooth splines between nodes.
+        
+        hide_links : bool = False
+            Whether to hide the links.
+
+        link_alpha : float = 0.5
+            Alpha value for drawing links.
         """
         # node addresses to flow
         node_to_flow = { address : self.cb.get_flow(address) for address in self.addresses.values() }
@@ -566,6 +682,7 @@ class MapSim():
 
         return res
 
+
     def L(self, G : Maybe[Graph] = None, verbose : bool = False) -> float:
         """
         Calculate the codelength.
@@ -615,6 +732,7 @@ class MapSim():
 
         return res
 
+
     def L_per_node(self, G : Graph) -> Dict[str, float]:
         M   = self
         res = dict()
@@ -628,6 +746,7 @@ class MapSim():
                     res[u] += - p_u * T[ix_u,ix_v] * log2(M.mapsim(u, v))
 
         return res
+
 
     def D_naive( self
                , other       : MapSim
@@ -963,11 +1082,13 @@ class MapSim():
 class MapSimMixture(MapSim):
     def __init__(self, A, B):
         super().__init__()
+        raise NotImplementedError("MapSimMixture.__init__")
 
 
 class OverlappingMapSim(MapSim):
     def __init__(self):
         super().__init__()
+        raise NotImplementedError("OverlappingMapSim.__init__")
 
     def from_treefile(self, filename: str) -> OverlappingMapSim:
         raise Exception("Cannot construct overlapping mapsim from tree file.")

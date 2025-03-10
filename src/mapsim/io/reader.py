@@ -328,8 +328,6 @@ class PartitionFromTreeFile(Partition):
         treefile: str
             The tree file to read.
         """
-        raise NotImplemented
-        
         super().__init__()
 
         self.paths = dict()
@@ -347,7 +345,7 @@ class PartitionFromTreeFile(Partition):
                     for prefix in inits(self.paths[name]):
                         module = tuple(prefix)
                         self.modules[module]["nodes"].add(name)
-        
+
         get_node_ID = id
 
 
