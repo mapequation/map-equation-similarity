@@ -1,11 +1,13 @@
 from __future__ import annotations
 # -----------------------------------------------------------------------------
 from infomap                              import Infomap
+from itertools                            import islice
 from networkx                             import Graph
 from matplotlib.bezier                    import BezierSegment
 from matplotlib.colors                    import LinearSegmentedColormap
 from matplotlib.patches                   import FancyArrowPatch, PathPatch
 from matplotlib.path                      import Path
+from multiprocessing                      import Pool, cpu_count
 from networkx.linalg.laplacianmatrix      import _transition_matrix
 from numpy                                import log2, inf as infinity
 from numpy.random                         import choice
@@ -19,6 +21,45 @@ import networkx          as nx
 import numpy             as np
 import seaborn           as sb
 # -----------------------------------------------------------------------------
+
+
+def parallel_jsd_task(args) -> float:
+    """
+    Task definition for computing JSD per node in parallel.
+    """
+    ( phi_A
+    , phi_B
+    , t_A
+    , t_B
+    , flows_A
+    , flows_B
+    , p_m_a
+    , p_m_b
+    , intersection_modules
+    , intersection_coding_fraction
+    , non_empty_modules_A
+    ) = args
+
+    res = 0.0
+    for m_a in non_empty_modules_A:
+        t_um_a = t_A[m_a]
+
+        for m_b in intersection_coding_fraction[m_a]:
+            t_um_b = t_B[m_b]
+            v_list = np.array(list(intersection_modules[m_a][m_b]))
+
+            if v_list.shape[0] > 0:
+                p_v_A = np.array([flows_A[v] for v in v_list])
+                p_v_B = np.array([flows_B[v] for v in v_list])
+
+                cross     = 0.5 * t_um_a * p_v_A / p_m_a[m_a] + 0.5 * t_um_b * p_v_B / p_m_b[m_b]
+                log_cross = np.log2(cross)
+
+                res -= np.sum(phi_A * t_um_a * p_v_A / p_m_a[m_a] * log_cross)
+                res -= np.sum(phi_B * t_um_b * p_v_B / p_m_b[m_b] * log_cross)
+
+    return res
+
 
 class MapSim():
     """
@@ -246,13 +287,14 @@ class MapSim():
             self.non_empty_modules[addr_m].append(addr_u)
 
         for m1 in self.non_empty_modules:
+            self.module_transition_rates[m1] = dict()
             for m2 in self.non_empty_modules:
                 if m1 != m2:
                     # we append 0 to the starting address because we need to consider exiting that module
-                    self.module_transition_rates[(m1, m2)] = self.cb.get_walk_rate((m1) + (0,), m2)
+                    self.module_transition_rates[m1][m2] = self.cb.get_walk_rate((m1) + (0,), m2)
                 else:
                     # "similarity" of m1 and m2, here we put the value 1 because it's the neutral element for the logarithm
-                    self.module_transition_rates[(m1, m2)] = 1.0
+                    self.module_transition_rates[m1][m2] = 1.0
 
         for addr_m in self.non_empty_modules:
             m   = self.modules[addr_m]
@@ -267,7 +309,7 @@ class MapSim():
             numerator = 0
             p_u       = self.modules[addr_u]["flow"]
             for addr_m in self.non_empty_modules:
-                numerator += self.module_coding_fraction[addr_m] * self.module_transition_rates[addr_u[:-1], addr_m]
+                numerator += self.module_coding_fraction[addr_m] * self.module_transition_rates[addr_u[:-1]][addr_m]
             self.phi[addr_u] = p_u / numerator if numerator > 0 else 0
 
 
@@ -350,6 +392,7 @@ class MapSim():
         modules = [path for path, m in self.modules.items() if len(m["nodes"]) == 0 and len(path) > 0]
 
         for m1 in modules:
+            self.module_transition_rates[m1] = dict()
             for m2 in modules:
                 if m1 != m2:
                     # we append 0 to the starting address because we need to consider exiting that module
@@ -368,7 +411,7 @@ class MapSim():
                 if v in module_nodes:
                     self.softmax_normalisers[path] += self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])
                 else:
-                    self.softmax_normalisers[path] += self.module_transition_rates[(path, path_v[:-1])] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])
+                    self.softmax_normalisers[path] += self.module_transition_rates[path][path_v[:-1]] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])
 
     def get_probability(self, u, v) -> float:
         """
@@ -380,7 +423,7 @@ class MapSim():
         if path_u[:-1] == path_v[:-1]:
             d_uv = self.cb.get_walk_rate(path_u, path_v)
         else:
-            d_uv = self.module_transition_rates[(path_u[:-1], path_v[:-1])] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])
+            d_uv = self.module_transition_rates[path_u[:-1]][path_v[:-1]] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])
 
         normaliser = self.softmax_normalisers[path_u[:-1]] - self.cb.get_module(path_u[:-1]).get_path_rate_forward(path_u[-1:])
         return d_uv / normaliser
@@ -399,7 +442,7 @@ class MapSim():
         """
         addr_u = self.addresses[u]
         addr_v = self.addresses[v]
-        return self.module_transition_rates[(addr_u[:-1], addr_v[:-1])] * self.modules[addr_v]["flow"] / self.modules[addr_v]["flow"]
+        return self.module_transition_rates[addr_u[:-1]][addr_v[:-1]] * self.modules[addr_v]["flow"] / self.modules[addr_v]["flow"]
 
 
     def plot_hierarchy( self
@@ -915,11 +958,11 @@ class MapSim():
 
         for u, addr_u in A.addresses.items():
             for m_a in A.non_empty_modules:
-                t_um_a = A.module_transition_rates[(addr_u[:-1], m_a)]
+                t_um_a = A.module_transition_rates[addr_u[:-1]][m_a]
                 res   += A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
 
                 for m_b in intersection_coding_fraction[m_a]:
-                    t_um_b = B.module_transition_rates[(B.addresses[u][:-1], m_b)]
+                    t_um_b = B.module_transition_rates[B.addresses[u][:-1]][m_b]
                     res   -= A.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b])
 
         return res
@@ -960,11 +1003,11 @@ class MapSim():
         addr_u = A.addresses[u]
 
         for m_a in A.non_empty_modules:
-            t_um_a = A.module_transition_rates[(addr_u[:-1], m_a)]
+            t_um_a = A.module_transition_rates[addr_u[:-1]][m_a]
             res   += A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
 
             for m_b in intersection_coding_fraction[m_a]:
-                t_um_b = B.module_transition_rates[(B.addresses[u][:-1], m_b)]
+                t_um_b = B.module_transition_rates[B.addresses[u][:-1]][m_b]
                 res   -= A.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b])
 
         return res
@@ -978,9 +1021,12 @@ class MapSim():
         A = self
         B = other
 
-        res = 0.0
-        for u, addr_u in A.addresses.items():
-            p_u       = A.cb.get_flow(addr_u)
+        res : float = 0.0
+        for u, addr_u_A in A.addresses.items():
+            addr_u_B : Tuple[int, ...] = B.addresses[u]
+            p_u_A    : float           = A.modules[addr_u_A]["flow"]
+            p_u_B    : float           = B.modules[addr_u_B]["flow"]
+
             mapsims_a = { v:A.mapsim(u, v) for v in A.addresses.keys() }
             mapsims_b = { v:B.mapsim(u, v) for v in B.addresses.keys() }
 
@@ -988,8 +1034,8 @@ class MapSim():
             sum_b = sum(mapsims_b.values())
 
             for v in A.addresses.keys():
-                a = (p_u * (mapsims_a[v] / sum_a) * log2(mapsims_a[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v]))) if mapsims_a[v] > 0 else 0.0
-                b = (p_u * (mapsims_b[v] / sum_b) * log2(mapsims_b[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v]))) if mapsims_b[v] > 0 else 0.0
+                a = (p_u_A * (mapsims_a[v] / sum_a) * log2(mapsims_a[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v]))) if mapsims_a[v] > 0 else 0.0
+                b = (p_u_B * (mapsims_b[v] / sum_b) * log2(mapsims_b[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v]))) if mapsims_b[v] > 0 else 0.0
                 res += 0.5 * (a + b)
 
         return np.sqrt(res)
@@ -1008,6 +1054,31 @@ class MapSim():
 
         # return np.round(1/2 * A.D_naive(M) + 1/2 * B.D_naive(M), decimals = 14)
 
+    def JSD_sample(self, other : MapSim, k : int = 10) -> float:
+        A = self
+        B = other
+
+        res : float = 0.0
+        # sample the k most important target nodes from each source node
+        for u, addr_u_A in A.addresses.items():
+            addr_u_B  : Tuple[int, ...] = B.addresses[u]
+            p_u_A     : float           = A.modules[addr_u_A]["flow"]
+            p_u_B     : float           = B.modules[addr_u_B]["flow"]
+
+            mapsims_a = { v:A.mapsim(u, v) for v in islice(A.make_recommendations(u), k) }
+            mapsims_b = { v:B.mapsim(u ,v) for v in mapsims_a.keys()                     }
+
+            sum_a = sum(mapsims_a.values())
+            sum_b = sum(mapsims_b.values())
+
+            for v in mapsims_a.keys():
+                a        = (p_u_A * (mapsims_a[v] / sum_a) * log2(mapsims_a[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v]))) if mapsims_a[v] > 0 else 0.0
+                b        = (p_u_B * (mapsims_b[v] / sum_b) * log2(mapsims_b[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v]))) if mapsims_b[v] > 0 else 0.0
+                res += 0.5 * (a + b)
+
+        return np.sqrt(res)
+
+
     def JSD(self, other : MapSim) -> float:
         A = self
         B = other
@@ -1021,7 +1092,6 @@ class MapSim():
 
         res_A_M : float = 0.0
         res_B_M : float = 0.0
-        res_M   : float = 0.0
 
         # We compute the result in three steps
         # d_F(A,B) = sqrt(1/2 * D_F(A||M) + 1/2 * D_F(B||M))
@@ -1029,27 +1099,27 @@ class MapSim():
         # Part for A
         for u, addr_u_A in A.addresses.items():
             for m_a in A.non_empty_modules:
-                t_um_a   = A.module_transition_rates[(addr_u_A[:-1], m_a)]
+                t_um_a   = A.module_transition_rates[addr_u_A[:-1]][m_a]
                 res_A_M += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
 
         # Part for B
         for u, addr_u_B in B.addresses.items():
             for m_b in B.non_empty_modules:
-                t_um_b   = B.module_transition_rates[(addr_u_B[:-1], m_b)]
+                t_um_b   = B.module_transition_rates[addr_u_B[:-1]][m_b]
                 res_B_M += B.phi[addr_u_B] * t_um_b * (B.module_coding_fraction[m_b] * log2(t_um_b) + B.module_internal_entropy[m_b])
 
         # Part for A and B
-        # unfortunately, this part is not nefficient (yet)
+        # unfortunately, this part is not efficient (yet)
         for u, addr_u_A in A.addresses.items():
             addr_u_B = B.addresses[u]
             phi_A    = A.phi[addr_u_A]
             phi_B    = B.phi[addr_u_B]
 
             for m_a in A.non_empty_modules:
-                t_um_a    = A.module_transition_rates[(addr_u_A[:-1], m_a)]
+                t_um_a    = A.module_transition_rates[addr_u_A[:-1]][m_a]
 
                 for m_b in intersection_coding_fraction[m_a]:
-                    t_um_b    = B.module_transition_rates[(addr_u_B[:-1], m_b)]
+                    t_um_b    = B.module_transition_rates[addr_u_B[:-1]][m_b]
 
                     # Get all nodes in the intersection as a NumPy array
                     v_list = np.array(list(intersection_modules[m_a][m_b]))
@@ -1077,6 +1147,65 @@ class MapSim():
                         #     res_B_M -= phi_u_B * t_um_b * p_v_B / p_m_b[m_b] * cross
 
         return np.sqrt(0.5 * res_A_M + 0.5 * res_B_M)
+
+
+    def JSD_parallel( self
+                    , other  : MapSim
+                    , n_jobs : Maybe[int] = None
+                    ) -> float:
+        if n_jobs is None:
+            n_jobs = cpu_count()
+
+        A = self
+        B = other
+
+        ( p_m_a
+        , p_m_b
+        , intersection_modules
+        , intersection_coding_fraction
+        , intersection_internal_entropies
+        ) = self._precompute_intersection(other = B)
+
+        res_A_M : float = 0.0
+        res_B_M : float = 0.0
+
+        # We compute the result in three steps
+        # d_F(A,B) = sqrt(1/2 * D_F(A||M) + 1/2 * D_F(B||M))
+
+        # Part for A
+        for u, addr_u_A in A.addresses.items():
+            for m_a in A.non_empty_modules:
+                t_um_a   = A.module_transition_rates[addr_u_A[:-1]][m_a]
+                res_A_M += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
+
+        # Part for B
+        for u, addr_u_B in B.addresses.items():
+            for m_b in B.non_empty_modules:
+                t_um_b   = B.module_transition_rates[addr_u_B[:-1]][m_b]
+                res_B_M += B.phi[addr_u_B] * t_um_b * (B.module_coding_fraction[m_b] * log2(t_um_b) + B.module_internal_entropy[m_b])
+
+        flows_A = { v : A.modules[addr_v_A]["flow"] for v, addr_v_A in A.addresses.items() }
+        flows_B = { v : B.modules[addr_v_B]["flow"] for v, addr_v_B in B.addresses.items() }
+
+        task_parameters = [ ( A.phi[addr_u_A]
+                            , B.phi[B.addresses[u]]
+                            , A.module_transition_rates[A.addresses[u][:-1]] # only need the transition rates from u's module
+                            , B.module_transition_rates[B.addresses[u][:-1]] # only need the transition rates from u's modules
+                            , flows_A
+                            , flows_B
+                            , p_m_a
+                            , p_m_b
+                            , intersection_modules
+                            , intersection_coding_fraction
+                            , A.non_empty_modules
+                            )
+                              for u, addr_u_A in A.addresses.items()
+                          ]
+
+        with Pool(processes = n_jobs) as pool:
+            res_par = np.sum(pool.map(parallel_jsd_task, task_parameters))
+
+        return np.sqrt(0.5 * res_A_M + 0.5 * res_B_M + 0.5 * res_par)
 
 
 class MapSimMixture(MapSim):
@@ -1249,10 +1378,11 @@ class MapSimSampler(MapSim):
         modules = [path for path, m in self.modules.items() if len(m["nodes"]) == 0 and len(path) > 0]
 
         for m1 in modules:
+            self.module_transition_rates[m1] = dict()
             for m2 in modules:
                 if m1 != m2:
                     # we append 0 to the starting address because we need to consider exiting that module
-                    self.module_transition_rates[(m1, m2)] = self.cb.get_walk_rate((m1) + (0,), m2)
+                    self.module_transition_rates[m1][m2] = self.cb.get_walk_rate((m1) + (0,), m2)
 
         # calculate the softmax normalisers
         self.softmax_normalisers = dict()
@@ -1267,7 +1397,7 @@ class MapSimSampler(MapSim):
                 if v in module_nodes:
                     self.softmax_normalisers[path] += 2**(self.beta * log2(self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])))
                 else:
-                    self.softmax_normalisers[path] += 2**(self.beta * log2(self.module_transition_rates[(path, path_v[:-1])] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])))
+                    self.softmax_normalisers[path] += 2**(self.beta * log2(self.module_transition_rates[path][path_v[:-1]] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:])))
 
     def from_infomap(self, infomap: Infomap, mapping: Dict[int, str] | None = None, netfile: str | None = None) -> MapSim:
         super().from_infomap(infomap)
@@ -1280,6 +1410,6 @@ class MapSimSampler(MapSim):
         if path_u[:-1] == path_v[:-1]:
             d_uv = log2(self.cb.get_walk_rate(path_u, path_v))
         else:
-            d_uv = log2(self.module_transition_rates[(path_u[:-1], path_v[:-1])] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:]))
+            d_uv = log2(self.module_transition_rates[path_u[:-1]][path_v[:-1]] * self.cb.get_module(path_v[:-1]).get_path_rate_forward(path_v[-1:]))
         normaliser = self.softmax_normalisers[path_u[:-1]] - 2**(self.beta * log2(self.cb.get_module(path_u[:-1]).get_path_rate_forward(path_u[-1:])))
         return self.population(u) * 2**(self.beta * d_uv) / normaliser
