@@ -365,6 +365,18 @@ class CodeBook:
                ) if self.code_book[path[0]].normaliser > 0.0 else 0.0
 
 
+    def get_depth(self):
+        """
+        Get the codebook's depth.
+        """
+        # when we're at the bottom level
+        if self.node is not None:
+            return 0
+
+        # when there are sub-modules
+        return 1 + max([0] + [sub.get_depth() for sub in self.code_book.values()])
+
+
     def traverse_for_recommendations(self, entry_cost : float, targets : List[PrioritisedItem]):
         # there's only this one node to visit
         if self.node is not None:
