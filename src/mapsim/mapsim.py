@@ -350,7 +350,7 @@ class MapSim():
         # each node has a membership in this partition and in the other partition,
         # which allows us computing intersections by considering each node only once.
         for u, addr_u_a in self.addresses.items():
-            p_u      = A.modules[addr_u_a]["flow"]
+            p_u_A    = A.modules[addr_u_a]["flow"]
             addr_u_b = B.addresses[u]
             p_u_B    = B.modules[addr_u_b]["flow"] # for compatibility with different topologies
 
@@ -364,11 +364,11 @@ class MapSim():
 
             if m_b not in intersection_internal_entropies[m_a]:
                 intersection_internal_entropies[m_a][m_b] = 0
-            intersection_internal_entropies[m_a][m_b] += (p_u / p_m_a[m_a]) * log2(p_u_B / p_m_b[m_b])
+            intersection_internal_entropies[m_a][m_b] += (p_u_A / p_m_a[m_a]) * log2(p_u_B / p_m_b[m_b])
 
             if m_b not in intersection_coding_fraction[m_a]:
                 intersection_coding_fraction[m_a][m_b] = 0
-            intersection_coding_fraction[m_a][m_b] += p_u / p_m_a[m_a]
+            intersection_coding_fraction[m_a][m_b] += p_u_A / p_m_a[m_a]
 
             # also remember which nodes sit where
             if m_b not in intersection_modules[m_a]:
@@ -875,7 +875,7 @@ class MapSim():
                         if verbose:
                             print(f"{u}->{v} {p_u:.2f} * {r_u_a[v] / s_a:.2f} * log2({r_u_a[v]:.2f} / {r_u_b[v]:.2f}) = {c:.2f}")
 
-        return np.round(res, decimals = 14)
+        return res
 
 
     def D_per_node_naive( self
@@ -1336,7 +1336,7 @@ class OverlappingMapSim(MapSim):
                 if verbose:
                     print(f"{u}->{v} {p_u:.2f} * {r_u_a[v] / s_a:.2f} * log2({r_u_a[v]:.2f} / {r_u_b[v]:.2f}) = {c:.2f}")
 
-        return np.round(res, decimals = 14)
+        return res
 
     def D_per_node(self, other: MapSim, u=None, G: Graph | None = None, verbose: bool = False) -> float:
         """
