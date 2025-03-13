@@ -961,11 +961,11 @@ class MapSim():
         for u, addr_u in A.addresses.items():
             for m_a in A.non_empty_modules:
                 t_um_a = A.module_transition_rates[addr_u[:-1]][m_a]
-                res   += A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
+                res   += (A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])) if t_um_a > 0 else 0.0
 
                 for m_b in intersection_coding_fraction[m_a]:
                     t_um_b = B.module_transition_rates[B.addresses[u][:-1]][m_b]
-                    res   -= A.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b])
+                    res   -= A.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b]) if (t_um_a > 0 and t_um_b > 0) else 0.0
 
         return res
 
