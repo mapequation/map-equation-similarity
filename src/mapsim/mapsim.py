@@ -299,11 +299,13 @@ class MapSim():
         for addr_m in self.non_empty_modules:
             m   = self.modules[addr_m]
             p_m = m["flow"] + m["exit"]
-            self.module_coding_fraction[addr_m]  = (1.0 - m["exit"] / p_m) if p_m > 0 else 1.0
+            self.module_coding_fraction[addr_m]  = (1.0 - m["exit"] / p_m) if p_m > 0.0 else 1.0
             self.module_internal_entropy[addr_m] = 0.0
             for addr_u in self.non_empty_modules[addr_m]:
-                u = self.modules[addr_u]
-                self.module_internal_entropy[addr_m] += ((u["flow"] / p_m) * log2(u["flow"] / p_m)) if p_m > 0 else 0.0
+                p_u            : float = self.modules[addr_u]["flow"]
+                p_u_normalised         = (p_u / p_m) if p_u > 0.0 else 0.0
+
+                self.module_internal_entropy[addr_m] += (p_u_normalised * log2(p_u_normalised)) if p_u_normalised > 0.0 else 0.0
 
         for addr_u in self.addresses.values():
             numerator = 0
