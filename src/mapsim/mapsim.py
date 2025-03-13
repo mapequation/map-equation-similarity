@@ -53,7 +53,7 @@ def parallel_jsd_task(args) -> float:
                 p_v_B = np.array([flows_B[v] for v in v_list])
 
                 cross     = 0.5 * t_um_a * p_v_A / p_m_a[m_a] + 0.5 * t_um_b * p_v_B / p_m_b[m_b]
-                log_cross = np.log2(cross)
+                log_cross = np.ma.log2(cross).filled(0)
 
                 res -= np.sum(phi_A * t_um_a * p_v_A / p_m_a[m_a] * log_cross)
                 res -= np.sum(phi_B * t_um_b * p_v_B / p_m_b[m_b] * log_cross)
@@ -1135,7 +1135,7 @@ class MapSim():
 
                         # Compute cross probabilities as a NumPy array
                         cross     = 0.5 * t_um_a * p_v_A / p_m_a[m_a] + 0.5 * t_um_b * p_v_B / p_m_b[m_b]
-                        log_cross = np.log2(cross)  # Vectorized log computation
+                        log_cross = np.ma.log2(cross).filled(0)  # Vectorized log computation
 
                         # Compute vectorized results
                         res_A_M -= np.sum(phi_A * t_um_a * p_v_A / p_m_a[m_a] * log_cross)
