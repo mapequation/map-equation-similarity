@@ -1101,14 +1101,16 @@ class MapSim():
         # Part for A
         for u, addr_u_A in A.addresses.items():
             for m_a in A.non_empty_modules:
-                t_um_a   = A.module_transition_rates[addr_u_A[:-1]][m_a]
-                res_A_M += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
+                t_um_a = A.module_transition_rates[addr_u_A[:-1]][m_a]
+                if t_um_a > 0.0:
+                    res_A_M += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
 
         # Part for B
         for u, addr_u_B in B.addresses.items():
             for m_b in B.non_empty_modules:
-                t_um_b   = B.module_transition_rates[addr_u_B[:-1]][m_b]
-                res_B_M += B.phi[addr_u_B] * t_um_b * (B.module_coding_fraction[m_b] * log2(t_um_b) + B.module_internal_entropy[m_b])
+                t_um_b = B.module_transition_rates[addr_u_B[:-1]][m_b]
+                if t_um_b > 0.0:
+                    res_B_M += B.phi[addr_u_B] * t_um_b * (B.module_coding_fraction[m_b] * log2(t_um_b) + B.module_internal_entropy[m_b])
 
         # Part for A and B
         # unfortunately, this part is not efficient (yet)
