@@ -798,6 +798,7 @@ class MapSim():
                , G           : Maybe[Graph] = None
                , samples     : Maybe[int]   = None
                , sample_mode : str          = "uniform"
+               , normalise   : bool         = False
                , verbose     : bool         = False
                ) -> float:
         Ma = self
@@ -868,8 +869,15 @@ class MapSim():
                     r_u_b = Mb.predict_interaction_rates(u, include_self_links = True)
                     s_a   = sum(r_u_a.values())
 
+                    if normalise:
+                        norm_a = s_a
+                        norm_b = sum(r_u_b.values())
+                    else:
+                        norm_a = 1.0
+                        norm_b = 1.0
+
                     for v in r_u_a.keys():
-                        c = (p_u * (r_u_a[v] / s_a) * log2(r_u_a[v] / r_u_b[v])) if r_u_a[v] > 0 and r_u_b[v] > 0 else 0
+                        c = (p_u * (r_u_a[v] / s_a) * log2((r_u_a[v] / norm_a) / (r_u_b[v] / norm_b))) if r_u_a[v] > 0 and r_u_b[v] > 0 else 0
                         res += c
 
                         if verbose:
@@ -928,7 +936,10 @@ class MapSim():
         return np.round(res, decimals = 14)
 
 
-    def D(self, other : MapSim) -> float:
+    def D( self
+         , other     : MapSim
+         , normalise : bool = False
+         ) -> float:
         """
         Compute the flow divergence between this partition and the other one efficiently.
 
@@ -958,14 +969,21 @@ class MapSim():
 
         res = 0
 
+        norm_A = 0.0
+        norm_B = 0.0
+
         for u, addr_u in A.addresses.items():
             for m_a in A.non_empty_modules:
                 t_um_a = A.module_transition_rates[addr_u[:-1]][m_a]
-                res   += (A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])) if t_um_a > 0 else 0.0
+                if normalise:
+                    norm_A = A.module_coding_fraction[m_a] * log2(sum([A.module_transition_rates[addr_u[:-1]][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
+                res += (A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a] - norm_A)) if t_um_a > 0 else 0.0
 
                 for m_b in intersection_coding_fraction[m_a]:
                     t_um_b = B.module_transition_rates[B.addresses[u][:-1]][m_b]
-                    res   -= A.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b]) if (t_um_a > 0 and t_um_b > 0) else 0.0
+                    if normalise:
+                        norm_B = intersection_coding_fraction[m_a][m_b] * log2(sum([B.module_transition_rates[B.addresses[u][:-1]][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
+                    res -= A.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b] - norm_B) if (t_um_a > 0 and t_um_b > 0) else 0.0
 
         return res
 
