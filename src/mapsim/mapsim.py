@@ -1043,12 +1043,16 @@ class MapSim():
 
 
     def JSD_naive( self
-                 , other   : MapSim
-                 , G       : Maybe[Graph] = None
-                 , verbose : bool         = False
+                 , other     : MapSim
+                 , G         : Maybe[Graph] = None
+                 , normalise : bool         = False
+                 , verbose   : bool         = False
                  ) -> float:
         A = self
         B = other
+
+        res_a = 0.0
+        res_b = 0.0
 
         res : float = 0.0
         for u, addr_u_A in A.addresses.items():
@@ -1056,15 +1060,27 @@ class MapSim():
             p_u_A    : float           = A.modules[addr_u_A]["flow"]
             p_u_B    : float           = B.modules[addr_u_B]["flow"]
 
-            mapsims_a = { v:A.mapsim(u, v) for v in A.addresses.keys() }
-            mapsims_b = { v:B.mapsim(u, v) for v in B.addresses.keys() }
+            mapsims_a  = { v:A.mapsim(u, v) for v in A.addresses.keys() }
+            mapsims_b  = { v:B.mapsim(u, v) for v in B.addresses.keys() }
+            mapsims_ab = { v:0.5*mapsims_a[v]+0.5*mapsims_b[v] for v in A.addresses.keys() }
 
-            sum_a = sum(mapsims_a.values())
-            sum_b = sum(mapsims_b.values())
+            sum_a  = sum(mapsims_a.values())
+            sum_b  = sum(mapsims_b.values())
+
+            if normalise:
+                norm_a  = sum_a
+                norm_b  = sum_b
+                norm_ab = sum(mapsims_ab.values())
+            else:
+                norm_a  = 1.0
+                norm_b  = 1.0
+                norm_ab = 1.0
 
             for v in A.addresses.keys():
-                a = (p_u_A * (mapsims_a[v] / sum_a) * log2(mapsims_a[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v]))) if mapsims_a[v] > 0 else 0.0
-                b = (p_u_B * (mapsims_b[v] / sum_b) * log2(mapsims_b[v] / (0.5 * mapsims_a[v] + 0.5 * mapsims_b[v]))) if mapsims_b[v] > 0 else 0.0
+                a = (p_u_A * (mapsims_a[v] / sum_a) * log2((mapsims_a[v] / mapsims_ab[v]) * (norm_ab / norm_a))) if mapsims_a[v] > 0 else 0.0
+                b = (p_u_B * (mapsims_b[v] / sum_b) * log2((mapsims_b[v] / mapsims_ab[v]) * (norm_ab / norm_b))) if mapsims_b[v] > 0 else 0.0
+                res_a += a
+                res_b += b
                 res += 0.5 * (a + b)
 
         return np.sqrt(res)
