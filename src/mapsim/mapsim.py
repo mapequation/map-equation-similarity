@@ -1238,9 +1238,7 @@ class MapSim():
         #                 res_A_M += phi_A * sum_mapsims_A * log2(0.5*sum_mapsims_A + 0.5*sum_mapsims_B)
         #                 res_B_M += phi_B * sum_mapsims_B * log2(0.5*sum_mapsims_A + 0.5*sum_mapsims_B)
 
-        return np.sqrt( 0.5 * (res_A + res_A_M)
-                      + 0.5 * (res_B + res_B_M)
-                      )
+        return np.sqrt(0.5 * (res_A + res_A_M + res_B + res_B_M))
 
 
     def JSD_parallel( self
