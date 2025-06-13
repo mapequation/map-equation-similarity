@@ -1085,19 +1085,6 @@ class MapSim():
 
         return np.sqrt(res)
 
-        # class Mixture:
-        #     def __init__(self, A, B):
-        #         self.A = A
-        #         self.B = B
-
-        #     def predict_interaction_rates(self, u, include_self_links : bool = True) -> Dict[str, float]:
-        #         r_u_a = self.A.predict_interaction_rates(u, include_self_links = True)
-        #         r_u_b = self.B.predict_interaction_rates(u, include_self_links = True)
-        #         return { v : 1/2 * r_u_a[v] + 1/2 * r_u_b[v] for v in r_u_a.keys() }
-
-        # M = Mixture(A, B)
-
-        # return np.round(1/2 * A.D_naive(M) + 1/2 * B.D_naive(M), decimals = 14)
 
     def JSD_sample(self, other : MapSim, k : int = 10) -> float:
         A = self
