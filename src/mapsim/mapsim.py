@@ -977,13 +977,15 @@ class MapSim():
                 t_um_a = A.module_transition_rates[addr_u[:-1]][m_a]
                 if normalise:
                     norm_A = A.module_coding_fraction[m_a] * log2(sum([A.module_transition_rates[addr_u[:-1]][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
-                res += (A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a] - norm_A)) if t_um_a > 0 else 0.0
+                if t_um_a > 0:
+                    res += A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a] - norm_A)
 
                 for m_b in intersection_coding_fraction[m_a]:
                     t_um_b = B.module_transition_rates[B.addresses[u][:-1]][m_b]
                     if normalise:
                         norm_B = intersection_coding_fraction[m_a][m_b] * log2(sum([B.module_transition_rates[B.addresses[u][:-1]][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
-                    res -= A.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b] - norm_B) if (t_um_a > 0 and t_um_b > 0) else 0.0
+                    if t_um_a > 0 and t_um_b > 0:
+                        res -= A.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b] - norm_B)
 
         return res
 
