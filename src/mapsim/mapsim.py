@@ -31,6 +31,8 @@ def parallel_jsd_task(args) -> float:
     , phi_B
     , t_A
     , t_B
+    , module_coding_fraction_A
+    , module_coding_fraction_B
     , flows_A
     , flows_B
     , p_m_a
@@ -38,9 +40,19 @@ def parallel_jsd_task(args) -> float:
     , intersection_modules
     , intersection_coding_fraction
     , non_empty_modules_A
+    , non_empty_modules_B
+    , normalise
     ) = args
 
     res = 0.0
+
+    if normalise:
+        sum_mapsims_A = sum([t_A[m_a] * module_coding_fraction_A[m_a] for m_a in non_empty_modules_A])
+        sum_mapsims_B = sum([t_B[m_b] * module_coding_fraction_B[m_b] for m_b in non_empty_modules_B])
+
+        res += phi_A * sum_mapsims_A * log2(0.5*sum_mapsims_A + 0.5*sum_mapsims_B)
+        res += phi_B * sum_mapsims_B * log2(0.5*sum_mapsims_A + 0.5*sum_mapsims_B)
+
     for m_a in non_empty_modules_A:
         t_um_a = t_A[m_a]
 
@@ -1232,8 +1244,9 @@ class MapSim():
 
 
     def JSD_parallel( self
-                    , other  : MapSim
-                    , n_jobs : Maybe[int] = None
+                    , other     : MapSim
+                    , normalise : bool       = False
+                    , n_jobs    : Maybe[int] = None
                     ) -> float:
         if n_jobs is None:
             n_jobs = cpu_count()
@@ -1252,21 +1265,26 @@ class MapSim():
         res_B_M : float = 0.0
 
         # We compute the result in three steps
+        # the first two parts can be computed efficiently, the third part is parallelised
         # d_F(A,B) = sqrt(1/2 * D_F(A||M) + 1/2 * D_F(B||M))
 
         # Part for A
         for u, addr_u_A in A.addresses.items():
             for m_a in A.non_empty_modules:
                 t_um_a = A.module_transition_rates[addr_u_A[:-1]][m_a]
+                if normalise:
+                    norm_A = A.module_coding_fraction[m_a] * log2(sum([A.module_transition_rates[addr_u_A[:-1]][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
                 if t_um_a > 0.0:
-                    res_A_M += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
+                    res_A_M += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a] - norm_A)
 
         # Part for B
         for u, addr_u_B in B.addresses.items():
             for m_b in B.non_empty_modules:
                 t_um_b = B.module_transition_rates[addr_u_B[:-1]][m_b]
+                if normalise:
+                    norm_B = B.module_coding_fraction[m_b] * log2(sum([B.module_transition_rates[addr_u_B[:-1]][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
                 if t_um_b > 0.0:
-                    res_B_M += B.phi[addr_u_B] * t_um_b * (B.module_coding_fraction[m_b] * log2(t_um_b) + B.module_internal_entropy[m_b])
+                    res_B_M += B.phi[addr_u_B] * t_um_b * (B.module_coding_fraction[m_b] * log2(t_um_b) + B.module_internal_entropy[m_b] - norm_B)
 
         flows_A = { v : A.modules[addr_v_A]["flow"] for v, addr_v_A in A.addresses.items() }
         flows_B = { v : B.modules[addr_v_B]["flow"] for v, addr_v_B in B.addresses.items() }
@@ -1275,6 +1293,8 @@ class MapSim():
                             , B.phi[B.addresses[u]]
                             , A.module_transition_rates[A.addresses[u][:-1]] # only need the transition rates from u's module
                             , B.module_transition_rates[B.addresses[u][:-1]] # only need the transition rates from u's modules
+                            , A.module_coding_fraction
+                            , B.module_coding_fraction
                             , flows_A
                             , flows_B
                             , p_m_a
@@ -1282,6 +1302,8 @@ class MapSim():
                             , intersection_modules
                             , intersection_coding_fraction
                             , A.non_empty_modules
+                            , B.non_empty_modules
+                            , normalise
                             )
                               for u, addr_u_A in A.addresses.items()
                           ]
@@ -1289,7 +1311,7 @@ class MapSim():
         with Pool(processes = n_jobs) as pool:
             res_par = np.sum(pool.map(parallel_jsd_task, task_parameters))
 
-        return np.sqrt(0.5 * res_A_M + 0.5 * res_B_M + 0.5 * res_par)
+        return np.sqrt(0.5 * (res_A_M + res_B_M + res_par))
 
 
 class MapSimMixture(MapSim):
