@@ -1111,7 +1111,10 @@ class MapSim():
         return np.sqrt(res)
 
 
-    def JSD(self, other : MapSim) -> float:
+    def JSD( self
+           , other     : MapSim
+           , normalise : bool   = False
+           ) -> float:
         A = self
         B = other
 
@@ -1128,59 +1131,104 @@ class MapSim():
         # We compute the result in three steps
         # d_F(A,B) = sqrt(1/2 * D_F(A||M) + 1/2 * D_F(B||M))
 
-        # Part for A
+        # Part for A -- "A log A"
+        res_A  : float = 0.0
+        norm_A : float = 0.0
         for u, addr_u_A in A.addresses.items():
             for m_a in A.non_empty_modules:
                 t_um_a = A.module_transition_rates[addr_u_A[:-1]][m_a]
+                if normalise:
+                    norm_A = A.module_coding_fraction[m_a] * log2(sum([A.module_transition_rates[addr_u_A[:-1]][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
                 if t_um_a > 0.0:
-                    res_A_M += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
+                    res_A += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a] - norm_A)
 
-        # Part for B
+        # Part for B -- "B log B"
+        res_B  : float = 0.0
+        norm_B : float = 0.0
         for u, addr_u_B in B.addresses.items():
             for m_b in B.non_empty_modules:
                 t_um_b = B.module_transition_rates[addr_u_B[:-1]][m_b]
+                if normalise:
+                    norm_B = B.module_coding_fraction[m_b] * log2(sum([B.module_transition_rates[addr_u_B[:-1]][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
                 if t_um_b > 0.0:
-                    res_B_M += B.phi[addr_u_B] * t_um_b * (B.module_coding_fraction[m_b] * log2(t_um_b) + B.module_internal_entropy[m_b])
+                    res_B += B.phi[addr_u_B] * t_um_b * (B.module_coding_fraction[m_b] * log2(t_um_b) + B.module_internal_entropy[m_b] - norm_B)
 
-        # Part for A and B
+        # Part for A and B -- "A log M" and "B log M"
         # unfortunately, this part is not efficient (yet)
-        for u, addr_u_A in A.addresses.items():
+        res_A_M : float = 0.0
+        res_B_M : float = 0.0
+        
+        ###################################################
+        # this is the naive version that works correctly: #
+        # (keeping it here for future reference)          #
+        ###################################################
+        # for u in A.addresses:
+        #     addr_u_A = A.addresses[u]
+        #     addr_u_B = B.addresses[u]
+        #     phi_A    = A.phi[addr_u_A]
+        #     phi_B    = B.phi[addr_u_B]
+
+        #     mapsims_A  = { v:A.mapsim(u ,v) for v in A.addresses }
+        #     mapsims_B  = { v:B.mapsim(u, v) for v in A.addresses }
+
+        #     for v in A.addresses:
+        #         mapsim_AB = 0.5 * mapsims_A[v] + 0.5 * mapsims_B[v]
+        #         res_A_M  -= phi_A * mapsims_A[v] * log2(mapsim_AB)
+        #         res_B_M  -= phi_B * mapsims_B[v] * log2(mapsim_AB)
+
+        #         if normalise:
+        #             res_A_M += phi_A * mapsims_A[v] * log2(0.5*sum(mapsims_A.values()) + 0.5*sum(mapsims_B.values()))
+        #             res_B_M += phi_B * mapsims_B[v] * log2(0.5*sum(mapsims_A.values()) + 0.5*sum(mapsims_B.values()))
+        ###################################################
+        # end naive version                               #
+        ###################################################
+
+        for u in A.addresses:
+            addr_u_A = A.addresses[u]
             addr_u_B = B.addresses[u]
+            m_u_A    = addr_u_A[:-1]
+            m_u_B    = addr_u_B[:-1]
             phi_A    = A.phi[addr_u_A]
             phi_B    = B.phi[addr_u_B]
 
+            if normalise:
+                sum_mapsims_A = sum([A.module_transition_rates[m_u_A][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules])
+                sum_mapsims_B = sum([B.module_transition_rates[m_u_B][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules])
+
+                res_A_M += phi_A * sum_mapsims_A * log2(0.5*sum_mapsims_A + 0.5*sum_mapsims_B)
+                res_B_M += phi_B * sum_mapsims_B * log2(0.5*sum_mapsims_A + 0.5*sum_mapsims_B)
+
             for m_a in A.non_empty_modules:
-                t_um_a    = A.module_transition_rates[addr_u_A[:-1]][m_a]
+                t_um_a = A.module_transition_rates[m_u_A][m_a]
+                for m_b in intersection_modules[m_a]:
+                    t_um_b = B.module_transition_rates[m_u_B][m_b]
 
-                for m_b in intersection_coding_fraction[m_a]:
-                    t_um_b    = B.module_transition_rates[addr_u_B[:-1]][m_b]
+                    for v in intersection_modules[m_a][m_b]:
+                        p_v_A     = A.modules[A.addresses[v]]["flow"]
+                        p_v_B     = B.modules[B.addresses[v]]["flow"]
+                        mapsim_A  = t_um_a * p_v_A / p_m_a[m_a]
+                        mapsim_B  = t_um_b * p_v_B / p_m_b[m_b]
+                        mapsim_AB = 0.5 * mapsim_A + 0.5 * mapsim_B
+                        res_A_M  -= phi_A * mapsim_A * log2(mapsim_AB)
+                        res_B_M  -= phi_B * mapsim_B * log2(mapsim_AB)
 
-                    # Get all nodes in the intersection as a NumPy array
-                    v_list = np.array(list(intersection_modules[m_a][m_b]))
+        # we can apply the normalisation on a per-module basis, which should be more efficient
+        # if normalise:
+        #     for m_u_A in A.non_empty_modules:
+        #         for m_u_B in intersection_modules[m_u_A]:
+        #             for u in intersection_modules[m_u_A][m_u_B]:
+        #                 phi_A = A.phi[A.addresses[u]]
+        #                 phi_B = B.phi[B.addresses[u]]
 
-                    if v_list.shape[0] > 0:
-                        # Vectorized access to module "flow" values
-                        p_v_A = np.array([A.modules[A.addresses[v]]["flow"] for v in v_list])
-                        p_v_B = np.array([B.modules[B.addresses[v]]["flow"] for v in v_list])
+        #                 sum_mapsims_A = sum([A.module_transition_rates[m_u_A][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules])
+        #                 sum_mapsims_B = sum([B.module_transition_rates[m_u_B][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules])
 
-                        # Compute cross probabilities as a NumPy array
-                        cross     = 0.5 * t_um_a * p_v_A / p_m_a[m_a] + 0.5 * t_um_b * p_v_B / p_m_b[m_b]
-                        log_cross = np.ma.log2(cross).filled(0)  # Vectorized log computation
+        #                 res_A_M += phi_A * sum_mapsims_A * log2(0.5*sum_mapsims_A + 0.5*sum_mapsims_B)
+        #                 res_B_M += phi_B * sum_mapsims_B * log2(0.5*sum_mapsims_A + 0.5*sum_mapsims_B)
 
-                        # Compute vectorized results
-                        res_A_M -= np.sum(phi_A * t_um_a * p_v_A / p_m_a[m_a] * log_cross)
-                        res_B_M -= np.sum(phi_B * t_um_b * p_v_B / p_m_b[m_b] * log_cross)
-
-                        # for v in intersection_modules[m_a][m_b]:
-                        #     p_v_A = A.modules[A.addresses[v]]["flow"]
-                        #     p_v_B = B.modules[B.addresses[v]]["flow"]
-                        #     cross = log2 (0.5 * t_um_a * p_v_A / p_m_a[m_a]
-                        #                 + 0.5 * t_um_b * p_v_B / p_m_b[m_b]
-                        #                 )
-                        #     res_A_M -= phi_u_A * t_um_a * p_v_A / p_m_a[m_a] * cross
-                        #     res_B_M -= phi_u_B * t_um_b * p_v_B / p_m_b[m_b] * cross
-
-        return np.sqrt(0.5 * res_A_M + 0.5 * res_B_M)
+        return np.sqrt( 0.5 * (res_A + res_A_M)
+                      + 0.5 * (res_B + res_B_M)
+                      )
 
 
     def JSD_parallel( self
