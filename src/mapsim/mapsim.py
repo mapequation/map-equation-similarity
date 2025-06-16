@@ -275,10 +275,14 @@ class MapSim():
         self.cb.calculate_normalisers()
         self.cb.calculate_costs()
 
-        # Assigning codewords is technically just a gimmick, 
+        # Assigning codewords is technically just a gimmick,
         # we don't _need_ them but can create them if we _want_ them.
         if generate_codewords:
             self.cb.mk_codewords()
+
+        # We also cache all the nodes' flows for convenience,
+        # indexed by their name, not their address
+        self.flows = { v:self.modules[addr_v]["flow"] for v, addr_v in self.addresses.items() }
 
 
     def _precompute_flow_divergence(self) -> None:
@@ -974,7 +978,7 @@ class MapSim():
 
         ( _p_m_a
         , _p_m_b
-        , _intersection_modules
+        , intersection_modules
         , intersection_coding_fraction
         , intersection_internal_entropies
         ) = self._precompute_intersection(other = B)
@@ -984,15 +988,30 @@ class MapSim():
         norm_A = 0.0
         norm_B = 0.0
 
+        # the normalisation part for A is easy to apply per module instead of per node
+        # for B, we'll see later how to make it more efficient
+        if normalise:
+            for m_u in A.non_empty_modules:
+                phis = sum([A.phi[A.addresses[v]] for v in A.cb.get_module(m_u).get_nodes()])
+
+                for m_a in A.non_empty_modules:
+                    t_um_a = A.module_transition_rates[m_u][m_a]
+                    norm_A = A.module_coding_fraction[m_a] * log2(sum([A.module_transition_rates[m_u][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
+                    res   -= phis * t_um_a * norm_A
+
+
         for u, addr_u in A.addresses.items():
             for m_a in A.non_empty_modules:
                 t_um_a = A.module_transition_rates[addr_u[:-1]][m_a]
-                if normalise:
-                    norm_A = A.module_coding_fraction[m_a] * log2(sum([A.module_transition_rates[addr_u[:-1]][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
-                if t_um_a > 0:
-                    res += A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a] - norm_A)
 
-                for m_b in intersection_coding_fraction[m_a]:
+                # if normalise:
+                #     norm_A = A.module_coding_fraction[m_a] * log2(sum([A.module_transition_rates[addr_u[:-1]][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
+
+                if t_um_a > 0:
+                    # res += A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a] - norm_A)
+                    res += A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
+
+                for m_b in intersection_modules[m_a]:
                     t_um_b = B.module_transition_rates[B.addresses[u][:-1]][m_b]
                     if normalise:
                         norm_B = intersection_coding_fraction[m_a][m_b] * log2(sum([B.module_transition_rates[B.addresses[u][:-1]][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
@@ -1216,13 +1235,18 @@ class MapSim():
                     t_um_b = B.module_transition_rates[m_u_B][m_b]
 
                     for v in intersection_modules[m_a][m_b]:
-                        p_v_A     = A.modules[A.addresses[v]]["flow"]
-                        p_v_B     = B.modules[B.addresses[v]]["flow"]
-                        mapsim_A  = t_um_a * p_v_A / p_m_a[m_a]
-                        mapsim_B  = t_um_b * p_v_B / p_m_b[m_b]
-                        mapsim_AB = 0.5 * mapsim_A + 0.5 * mapsim_B
-                        res_A_M  -= phi_A * mapsim_A * log2(mapsim_AB)
-                        res_B_M  -= phi_B * mapsim_B * log2(mapsim_AB)
+                        # p_v_A     = A.modules[A.addresses[v]]["flow"]
+                        # p_v_B     = B.modules[B.addresses[v]]["flow"]
+                        # mapsim_A  = t_um_a * p_v_A / p_m_a[m_a]
+                        # mapsim_B  = t_um_b * p_v_B / p_m_b[m_b]
+                        mapsim_A  = t_um_a * A.flows[v] / p_m_a[m_a]
+                        mapsim_B  = t_um_b * B.flows[v] / p_m_b[m_b]
+                        # mapsim_AB = 0.5 * mapsim_A + 0.5 * mapsim_B
+                        # res_A_M  -= phi_A * mapsim_A * log2(mapsim_AB)
+                        # res_B_M  -= phi_B * mapsim_B * log2(mapsim_AB)
+                        log2_mapsim_AB = log2(mapsim_A + mapsim_B) - 1
+                        res_A_M       -= phi_A * mapsim_A * log2_mapsim_AB
+                        res_B_M       -= phi_B * mapsim_B * log2_mapsim_AB
 
         # we can apply the normalisation on a per-module basis, which should be more efficient
         # if normalise:
@@ -1267,6 +1291,7 @@ class MapSim():
         # d_F(A,B) = sqrt(1/2 * D_F(A||M) + 1/2 * D_F(B||M))
 
         # Part for A
+        norm_A : float = 0.0
         for u, addr_u_A in A.addresses.items():
             for m_a in A.non_empty_modules:
                 t_um_a = A.module_transition_rates[addr_u_A[:-1]][m_a]
@@ -1276,6 +1301,7 @@ class MapSim():
                     res_A_M += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a] - norm_A)
 
         # Part for B
+        norm_B : float = 0.0
         for u, addr_u_B in B.addresses.items():
             for m_b in B.non_empty_modules:
                 t_um_b = B.module_transition_rates[addr_u_B[:-1]][m_b]
