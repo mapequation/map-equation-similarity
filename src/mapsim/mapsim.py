@@ -289,10 +289,11 @@ class MapSim():
         """
         Precompute terms for efficiently computing flow divergence.
         """
-        self.module_transition_rates = dict() # ToDo: they are not module transition rates but mapsim values, that's why m1 == m2 => 1.0
-        self.module_coding_fraction  = dict()
-        self.module_internal_entropy = dict()
-        self.phi                     = dict()
+        self.module_transition_rates      = dict() # ToDo: they are not module transition rates but mapsim values, that's why m1 == m2 => 1.0
+        self.log2_module_transition_rates = dict()
+        self.module_coding_fraction       = dict()
+        self.module_internal_entropy      = dict()
+        self.phi                          = dict()
 
         # cache which nodes are in which modules
         self.non_empty_modules = dict()
@@ -303,14 +304,18 @@ class MapSim():
             self.non_empty_modules[addr_m].append(addr_u)
 
         for m1 in self.non_empty_modules:
-            self.module_transition_rates[m1] = dict()
+            self.module_transition_rates[m1]      = dict()
+            self.log2_module_transition_rates[m1] = dict()
             for m2 in self.non_empty_modules:
                 if m1 != m2:
                     # we append 0 to the starting address because we need to consider exiting that module
-                    self.module_transition_rates[m1][m2] = self.cb.get_walk_rate((m1) + (0,), m2)
+                    t_m1_m2                                   = self.cb.get_walk_rate((m1) + (0,), m2)
+                    self.module_transition_rates[m1][m2]      = t_m1_m2
+                    self.log2_module_transition_rates[m1][m2] = log2(t_m1_m2)
                 else:
                     # "similarity" of m1 and m2, here we put the value 1 because it's the neutral element for the logarithm
-                    self.module_transition_rates[m1][m2] = 1.0
+                    self.module_transition_rates[m1][m2]      = 1.0
+                    self.log2_module_transition_rates[m1][m2] = 0.0
 
         for addr_m in self.non_empty_modules:
             m   = self.modules[addr_m]
@@ -988,35 +993,60 @@ class MapSim():
         norm_A = 0.0
         norm_B = 0.0
 
-        # the normalisation part for A is easy to apply per module instead of per node
-        # for B, we'll see later how to make it more efficient
-        if normalise:
-            for m_u in A.non_empty_modules:
-                phis = sum([A.phi[A.addresses[v]] for v in A.cb.get_module(m_u).get_nodes()])
+        # Part for A
+        for m_u in A.non_empty_modules:
+            phis = sum([A.phi[A.addresses[v]] for v in A.cb.get_module(m_u).get_nodes()])
+            if normalise:
+                lambda_A = log2(sum([A.module_transition_rates[m_u][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
 
-                for m_a in A.non_empty_modules:
-                    t_um_a = A.module_transition_rates[m_u][m_a]
-                    norm_A = A.module_coding_fraction[m_a] * log2(sum([A.module_transition_rates[m_u][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
-                    res   -= phis * t_um_a * norm_A
-
-
-        for u, addr_u in A.addresses.items():
             for m_a in A.non_empty_modules:
-                t_um_a = A.module_transition_rates[addr_u[:-1]][m_a]
+                t_um_a      = A.module_transition_rates[m_u][m_a]
+                log2_t_um_a = A.log2_module_transition_rates[m_u][m_a]
+                if normalise:
+                    norm_A = A.module_coding_fraction[m_a] * lambda_A
+                res += phis * t_um_a * (A.module_coding_fraction[m_a] * log2_t_um_a + A.module_internal_entropy[m_a] - norm_A)
 
-                # if normalise:
-                #     norm_A = A.module_coding_fraction[m_a] * log2(sum([A.module_transition_rates[addr_u[:-1]][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
+        # the intersections
+        grouped_nodes = []
+        for m_a in intersection_modules:
+            for m_b in intersection_modules[m_a]:
+                grouped_nodes.append(list(intersection_modules[m_a][m_b]))
 
-                if t_um_a > 0:
-                    # res += A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a] - norm_A)
-                    res += A.phi[addr_u] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a])
+        # Part for A|B
+        for us in grouped_nodes:
+            m_u_a = A.addresses[us[0]][:-1]
+            m_u_b = B.addresses[us[0]][:-1]
+            phis  = sum([A.phi[A.addresses[u]] for u in us])
+
+            if normalise:
+                lambda_B = log2(sum([B.module_transition_rates[m_u_b][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
+
+            for m_a in A.non_empty_modules:
+                t_um_a = A.module_transition_rates[m_u_a][m_a]
 
                 for m_b in intersection_modules[m_a]:
-                    t_um_b = B.module_transition_rates[B.addresses[u][:-1]][m_b]
+                    t_um_b      = B.module_transition_rates[m_u_b][m_b]
+                    log2_t_um_b = B.log2_module_transition_rates[m_u_b][m_b]
                     if normalise:
-                        norm_B = intersection_coding_fraction[m_a][m_b] * log2(sum([B.module_transition_rates[B.addresses[u][:-1]][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
+                        norm_B = intersection_coding_fraction[m_a][m_b] * lambda_B
                     if t_um_a > 0 and t_um_b > 0:
-                        res -= A.phi[addr_u] * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2(t_um_b) + intersection_internal_entropies[m_a][m_b] - norm_B)
+                        res -= phis * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2_t_um_b + intersection_internal_entropies[m_a][m_b] - norm_B)
+
+
+        # for u, addr_u_A in A.addresses.items():
+        #     phi_u_A  = A.phi[addr_u_A]
+        #     addr_u_B = B.addresses[u]
+
+        #     for m_a in A.non_empty_modules:
+        #         t_um_a      = A.module_transition_rates[addr_u_A[:-1]][m_a]
+
+        #         for m_b in intersection_modules[m_a]:
+        #             t_um_b      = B.module_transition_rates[addr_u_B[:-1]][m_b]
+        #             log2_t_um_b = B.log2_module_transition_rates[addr_u_B[:-1]][m_b]
+        #             if normalise:
+        #                 norm_B = intersection_coding_fraction[m_a][m_b] * log2(sum([B.module_transition_rates[B.addresses[u][:-1]][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
+        #             if t_um_a > 0 and t_um_b > 0:
+        #                 res -= phi_u_A * t_um_a * (intersection_coding_fraction[m_a][m_b] * log2_t_um_b + intersection_internal_entropies[m_a][m_b] - norm_B)
 
         return res
 
@@ -1165,24 +1195,36 @@ class MapSim():
         # Part for A -- "A log A"
         res_A  : float = 0.0
         norm_A : float = 0.0
-        for u, addr_u_A in A.addresses.items():
+        #for u, addr_u_A in A.addresses.items():
+        for m_u in A.non_empty_modules:
+            phis = sum([A.phi[A.addresses[v]] for v in A.cb.get_module(m_u).get_nodes()])
+            if normalise:
+                lambda_A = log2(sum([A.module_transition_rates[m_u][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
+
             for m_a in A.non_empty_modules:
-                t_um_a = A.module_transition_rates[addr_u_A[:-1]][m_a]
+                t_um_a      = A.module_transition_rates[m_u][m_a]
+                log2_t_um_a = A.log2_module_transition_rates[m_u][m_a]
                 if normalise:
-                    norm_A = A.module_coding_fraction[m_a] * log2(sum([A.module_transition_rates[addr_u_A[:-1]][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
+                    norm_A = A.module_coding_fraction[m_a] * lambda_A
                 if t_um_a > 0.0:
-                    res_A += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a] - norm_A)
+                    res_A += phis * t_um_a * (A.module_coding_fraction[m_a] * log2_t_um_a + A.module_internal_entropy[m_a] - norm_A)
 
         # Part for B -- "B log B"
         res_B  : float = 0.0
         norm_B : float = 0.0
-        for u, addr_u_B in B.addresses.items():
+        #for u, addr_u_B in B.addresses.items():
+        for m_u in B.non_empty_modules:
+            phis = sum([B.phi[B.addresses[v]] for v in B.cb.get_module(m_u).get_nodes()])
+            if normalise:
+                lambda_B = log2(sum([B.module_transition_rates[m_u][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
+
             for m_b in B.non_empty_modules:
-                t_um_b = B.module_transition_rates[addr_u_B[:-1]][m_b]
+                t_um_b      = B.module_transition_rates[m_u][m_b]
+                log2_t_um_b = B.log2_module_transition_rates[m_u][m_b]
                 if normalise:
-                    norm_B = B.module_coding_fraction[m_b] * log2(sum([B.module_transition_rates[addr_u_B[:-1]][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
+                    norm_B = B.module_coding_fraction[m_b] * lambda_B
                 if t_um_b > 0.0:
-                    res_B += B.phi[addr_u_B] * t_um_b * (B.module_coding_fraction[m_b] * log2(t_um_b) + B.module_internal_entropy[m_b] - norm_B)
+                    res_B += phis * t_um_b * (B.module_coding_fraction[m_b] * log2_t_um_b + B.module_internal_entropy[m_b] - norm_B)
 
         # Part for A and B -- "A log M" and "B log M"
         # unfortunately, this part is not efficient (yet)
@@ -1214,13 +1256,23 @@ class MapSim():
         # end naive version                               #
         ###################################################
 
-        for u in A.addresses:
-            addr_u_A = A.addresses[u]
-            addr_u_B = B.addresses[u]
-            m_u_A    = addr_u_A[:-1]
-            m_u_B    = addr_u_B[:-1]
-            phi_A    = A.phi[addr_u_A]
-            phi_B    = B.phi[addr_u_B]
+        grouped_nodes = []
+        for m_a in intersection_modules:
+            for m_b in intersection_modules[m_a]:
+                grouped_nodes.append(list(intersection_modules[m_a][m_b]))
+
+        #for u in A.addresses:
+        for us in grouped_nodes:
+            # addr_u_A = A.addresses[u]
+            # addr_u_B = B.addresses[u]
+            # m_u_A    = addr_u_A[:-1]
+            # m_u_B    = addr_u_B[:-1]
+            # phi_A    = A.phi[addr_u_A]
+            # phi_B    = B.phi[addr_u_B]
+            m_u_A = A.addresses[us[0]][:-1]
+            m_u_B = B.addresses[us[0]][:-1]
+            phi_A = sum([A.phi[A.addresses[u]] for u in us])
+            phi_B = sum([B.phi[B.addresses[u]] for u in us])
 
             if normalise:
                 sum_mapsims_A = sum([A.module_transition_rates[m_u_A][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules])
@@ -1262,7 +1314,8 @@ class MapSim():
         #                 res_A_M += phi_A * sum_mapsims_A * log2(0.5*sum_mapsims_A + 0.5*sum_mapsims_B)
         #                 res_B_M += phi_B * sum_mapsims_B * log2(0.5*sum_mapsims_A + 0.5*sum_mapsims_B)
 
-        return np.sqrt(0.5 * (res_A + res_A_M + res_B + res_B_M))
+        # sometimes numerical errors are against us and the terms become slighly negative, so we clip at 0
+        return np.sqrt(np.maximum(0, 0.5 * (res_A + res_A_M + res_B + res_B_M)))
 
 
     def JSD_parallel( self
@@ -1292,31 +1345,48 @@ class MapSim():
 
         # Part for A
         norm_A : float = 0.0
-        for u, addr_u_A in A.addresses.items():
+        #for u, addr_u_A in A.addresses.items():
+        for m_u in A.non_empty_modules:
+            phis = sum([A.phi[A.addresses[v]] for v in A.cb.get_module(m_u).get_nodes()])
+            if normalise:
+                lambda_A = log2(sum([A.module_transition_rates[m_u][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
+
             for m_a in A.non_empty_modules:
-                t_um_a = A.module_transition_rates[addr_u_A[:-1]][m_a]
+                t_um_a      = A.module_transition_rates[m_u][m_a]
+                log2_t_um_a = A.log2_module_transition_rates[m_u][m_a]
                 if normalise:
-                    norm_A = A.module_coding_fraction[m_a] * log2(sum([A.module_transition_rates[addr_u_A[:-1]][m_a] * A.module_coding_fraction[m_a] for m_a in A.non_empty_modules]))
+                    norm_A = A.module_coding_fraction[m_a] * lambda_A
                 if t_um_a > 0.0:
-                    res_A_M += A.phi[addr_u_A] * t_um_a * (A.module_coding_fraction[m_a] * log2(t_um_a) + A.module_internal_entropy[m_a] - norm_A)
+                    res_A_M += phis * t_um_a * (A.module_coding_fraction[m_a] * log2_t_um_a + A.module_internal_entropy[m_a] - norm_A)
 
         # Part for B
         norm_B : float = 0.0
-        for u, addr_u_B in B.addresses.items():
+        #for u, addr_u_B in B.addresses.items():
+        for m_u in B.non_empty_modules:
+            phis = sum([B.phi[B.addresses[v]] for v in B.cb.get_module(m_u).get_nodes()])
+            if normalise:
+                lambda_B = log2(sum([B.module_transition_rates[m_u][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
+
             for m_b in B.non_empty_modules:
-                t_um_b = B.module_transition_rates[addr_u_B[:-1]][m_b]
+                t_um_b      = B.module_transition_rates[m_u][m_b]
+                log2_t_um_b = B.log2_module_transition_rates[m_u][m_b]
                 if normalise:
-                    norm_B = B.module_coding_fraction[m_b] * log2(sum([B.module_transition_rates[addr_u_B[:-1]][m_b] * B.module_coding_fraction[m_b] for m_b in B.non_empty_modules]))
+                    norm_B = B.module_coding_fraction[m_b] * lambda_B
                 if t_um_b > 0.0:
-                    res_B_M += B.phi[addr_u_B] * t_um_b * (B.module_coding_fraction[m_b] * log2(t_um_b) + B.module_internal_entropy[m_b] - norm_B)
+                    res_B_M += phis * t_um_b * (B.module_coding_fraction[m_b] * log2_t_um_b + B.module_internal_entropy[m_b] - norm_B)
 
         flows_A = { v : A.modules[addr_v_A]["flow"] for v, addr_v_A in A.addresses.items() }
         flows_B = { v : B.modules[addr_v_B]["flow"] for v, addr_v_B in B.addresses.items() }
 
-        task_parameters = [ ( A.phi[addr_u_A]
-                            , B.phi[B.addresses[u]]
-                            , A.module_transition_rates[A.addresses[u][:-1]] # only need the transition rates from u's module
-                            , B.module_transition_rates[B.addresses[u][:-1]] # only need the transition rates from u's modules
+        grouped_nodes = []
+        for m_a in intersection_modules:
+            for m_b in intersection_modules[m_a]:
+                grouped_nodes.append(list(intersection_modules[m_a][m_b]))
+
+        task_parameters = [ ( sum([A.phi[A.addresses[u]] for u in us])
+                            , sum([B.phi[B.addresses[u]] for u in us])
+                            , A.module_transition_rates[A.addresses[us[0]][:-1]] # only need the transition rates from u's module
+                            , B.module_transition_rates[B.addresses[us[0]][:-1]] # only need the transition rates from u's modules
                             , A.module_coding_fraction
                             , B.module_coding_fraction
                             , flows_A
@@ -1329,7 +1399,8 @@ class MapSim():
                             , B.non_empty_modules
                             , normalise
                             )
-                              for u, addr_u_A in A.addresses.items()
+                              # for u, addr_u_A in A.addresses.items()
+                              for us in grouped_nodes
                           ]
 
         with Pool(processes = n_jobs) as pool:
